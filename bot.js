@@ -55,6 +55,11 @@ function ensureUserExists(users, userId, name) {
 // 🌐 API ENDPOINTS (FOR MINI APP CONNECTION)
 // ==========================================
 
+// 🟢 0. مسار فحص الاستجابة الرئيسي لإبقاء السيرفر مستيقظاً عبر UptimeRobot
+app.get("/", (req, res) => {
+  res.status(200).send("🚀 StopLock Server is Live and Active!");
+});
+
 // 🔄 1. جلب بيانات المستخدم المحدثة عند فتح اللعبة
 app.get("/api/user-data/:userId", (req, res) => {
   const users = loadData(DB_FILE);
@@ -237,7 +242,7 @@ bot.callbackQuery("show_leaderboard", async (ctx) => {
 // 📜 Rules & FAQ Callback
 bot.callbackQuery("show_rules", async (ctx) => {
   const rulesText = `📜 **STOPLOCK RULES & FAQ:**\n\n` +
-    `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, watch ads for +1 point, and +1 point for each friend invited.\n\n` +
+    `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, watch ads for +0.5 point (2 ads/day), and +1 point for each friend invited.\n\n` +
     `2️⃣ **Game Modes (Target < 5.000s):**\n` +
     `• 🎯 **Practice Arena:** Unlimited free warm-up mode.\n` +
     `• 🥉 **Bronze:** Classic visible timer.\n` +
