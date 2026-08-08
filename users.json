@@ -1,0 +1,30 @@
+{
+  "978982065": {
+    "id": 978982065,
+    "username": "hosin155",
+    "points": 2,
+    "bestDiff": null,
+    "referralsCount": 0,
+    "createdAt": "2026-08-07T05:08:16.591Z",
+    "balanceUSD": 0
+  },
+  "6521701505": {
+    "id": 6521701505,
+    "username": "Hussein",
+    "points": 3,
+    "bestDiff": null,
+    "referralsCount": 1,
+    "createdAt": "2026-08-07T07:29:43.284Z",
+    "balanceUSD": 0
+  },
+  "5219542520": {
+    "id": 5219542520,
+    "username": "Annal",
+    "points": 2,
+    "balanceUSD": 0,
+    "bestDiff": null,
+    "lastClaimDate": null,
+    "referralsCount": 0,
+    "createdAt": "2026-08-07T08:30:20.856Z"
+  }
+}
