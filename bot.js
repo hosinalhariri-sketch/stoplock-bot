@@ -68,7 +68,7 @@ app.get("/api/user-data/:userId", (req, res) => {
   res.json({ points: u.points, balanceUSD: u.balanceUSD });
 });
 
-// 🎁 2. المطالبة بالمكافأة اليومية (0.5 نقطة) وحفظها دائماً
+// 🎁 2. المطالبة بالمكافأة اليومية (تم تعديلها لتعطي 0.5 نقطة كما هو مفترض)
 app.post("/api/claim-daily", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -81,16 +81,16 @@ app.post("/api/claim-daily", (req, res) => {
     return res.status(400).json({ error: "Already claimed today", points: users[userId].points });
   }
 
-  users[userId].points = (users[userId].points || 0) + 1000;
+  users[userId].points = (users[userId].points || 0) + 0.5;
   users[userId].lastClaimDate = today;
   saveData(DB_FILE, users);
 
   res.json({ success: true, points: users[userId].points });
 });
 
-// 🏆 3. إرسال نتيجة المحاولة (مع آلية تحديث نتائج اللاعب الموجود مسبقاً لمنع التلاعب)
+// 🏆 3. إرسال نتيجة المحاولة (مع تثبيت معرّف الغرفة roomId لمنع فتح غرفة جديدة عند الإعادة)
 app.post("/api/submit-score", async (req, res) => {
-  const { userId, mode, diff, cost } = req.body;
+  const { userId, mode, diff, cost, roomId } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
 
   const users = loadData(DB_FILE);
@@ -111,42 +111,49 @@ app.post("/api/submit-score", async (req, res) => {
     users[userId].bestDiff = cleanDiff;
   }
 
-  if (!rooms[mode]) rooms[mode] = { currentRoomId: 1, players: [] };
-  let currentRoom = rooms[mode];
+  // 🔑 استقبال معرّف الغرفة الثابت من الواجهة أو توليده
+  const activeRoomKey = roomId || `${mode}_room_${rooms[mode]?.currentRoomId || 1}`;
 
-  // 🛡️ فحص وجود اللاعب في الغرفة الحالية (تحديث النتيجة بدلاً من إضافته كلاعب جديد)
-  const existingPlayerIndex = currentRoom.players.findIndex(p => String(p.userId) === String(userId));
-
-  if (existingPlayerIndex !== -1) {
-    // الاحتفاظ بالأفضل فقط بين المحاولات لنفس اللاعب في هذه الغرفة
-    if (cleanDiff < currentRoom.players[existingPlayerIndex].diff) {
-      currentRoom.players[existingPlayerIndex].diff = cleanDiff;
-    }
-  } else {
-    // تسجيل لاعب جديد في الغرفة
-    currentRoom.players.push({ userId, username: users[userId].username, diff: cleanDiff });
+  if (!rooms[mode]) rooms[mode] = { currentRoomId: 1, activeRooms: {} };
+  if (!rooms[mode].activeRooms) rooms[mode].activeRooms = {};
+  if (!rooms[mode].activeRooms[activeRoomKey]) {
+    rooms[mode].activeRooms[activeRoomKey] = [];
   }
 
-  // تحديد عدد اللاعبين الحقيقيين المطلوب لاكتمال الغرفة (2 لنمط Duel / 10 لباقي الأنماط)
+  let currentRoomPlayers = rooms[mode].activeRooms[activeRoomKey];
+
+  // 🛡️ فحص وجود اللاعب في نفس هذه الغرفة المحددة بدقة
+  const existingPlayerIndex = currentRoomPlayers.findIndex(p => String(p.userId) === String(userId));
+
+  if (existingPlayerIndex !== -1) {
+    // تحديث النتيجة للنتيجة الأفضل فقط داخل نفس الغرفة
+    if (cleanDiff < currentRoomPlayers[existingPlayerIndex].diff) {
+      currentRoomPlayers[existingPlayerIndex].diff = cleanDiff;
+    }
+  } else {
+    // تسجيل لاعب جديد في هذه الغرفة
+    currentRoomPlayers.push({ userId, username: users[userId].username, diff: cleanDiff });
+  }
+
   const targetPlayers = mode === 'duel' ? 2 : 10;
 
   // 🏁 عند اكتمال الغرفة بحسب سعتها الفعلية -> توزيع الجوائز
-  if (currentRoom.players.length >= targetPlayers) {
-    currentRoom.players.sort((a, b) => a.diff - b.diff);
+  if (currentRoomPlayers.length >= targetPlayers) {
+    currentRoomPlayers.sort((a, b) => a.diff - b.diff);
 
     const prize = PRIZES[mode] || PRIZES.bronze;
 
     if (mode === 'duel') {
-      const winner = currentRoom.players[0];
+      const winner = currentRoomPlayers[0];
       users[winner.userId].balanceUSD = (users[winner.userId].balanceUSD || 0) + prize.p1;
 
       try {
         await bot.api.sendMessage(winner.userId, `⚔️ **مبروك!** فزت في مواجهة الرأس بالرأس (1v1) وحصلت على **$${prize.p1} USD** 💵!`);
       } catch (e) {}
     } else {
-      const winner1 = currentRoom.players[0];
-      const winner2 = currentRoom.players[1];
-      const winner3 = currentRoom.players[2];
+      const winner1 = currentRoomPlayers[0];
+      const winner2 = currentRoomPlayers[1];
+      const winner3 = currentRoomPlayers[2];
 
       users[winner1.userId].balanceUSD = (users[winner1.userId].balanceUSD || 0) + prize.p1;
       users[winner2.userId].balanceUSD = (users[winner2.userId].balanceUSD || 0) + prize.p2;
@@ -159,14 +166,20 @@ app.post("/api/submit-score", async (req, res) => {
       } catch (e) {}
     }
 
-    // تجهيز غرفة جديدة وتفريغ القائمة
-    rooms[mode] = { currentRoomId: currentRoom.currentRoomId + 1, players: [] };
+    // تفريغ الغرفة الحالية وتجهيز المعرف للغرفة القادمة
+    delete rooms[mode].activeRooms[activeRoomKey];
+    rooms[mode].currentRoomId = (rooms[mode].currentRoomId || 1) + 1;
   }
 
   saveData(DB_FILE, users);
   saveData(ROOMS_FILE, rooms);
 
-  res.json({ success: true, balanceUSD: users[userId].balanceUSD || 0, points: users[userId].points });
+  res.json({ 
+    success: true, 
+    balanceUSD: users[userId].balanceUSD || 0, 
+    points: users[userId].points,
+    roomId: activeRoomKey 
+  });
 });
 
 // ==========================================
