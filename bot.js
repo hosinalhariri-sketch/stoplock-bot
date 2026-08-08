@@ -68,7 +68,7 @@ app.get("/api/user-data/:userId", (req, res) => {
   res.json({ points: u.points, balanceUSD: u.balanceUSD });
 });
 
-// 🎁 2. المطالبة بالمكافأة اليومية (تم تعديلها لتعطي 0.5 نقطة كما هو مفترض)
+// 🎁 2. المطالبة بالمكافأة اليومية (+0.5 نقطة)
 app.post("/api/claim-daily", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -81,14 +81,15 @@ app.post("/api/claim-daily", (req, res) => {
     return res.status(400).json({ error: "Already claimed today", points: users[userId].points });
   }
 
-  users[userId].points = (users[userId].points || 0) + 1000;
+  // تم تصحيح القيمة لـ 0.5 نقطة
+  users[userId].points = (users[userId].points || 0) + 0.5;
   users[userId].lastClaimDate = today;
   saveData(DB_FILE, users);
 
   res.json({ success: true, points: users[userId].points });
 });
 
-// 🏆 3. إرسال نتيجة المحاولة (مع تثبيت معرّف الغرفة roomId لمنع فتح غرفة جديدة عند الإعادة)
+// 🏆 3. إرسال نتيجة المحاولة (تثبيت معرّف الغرفة roomId لمنع فتح غرفة جديدة عند الإعادة)
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost, roomId } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -111,7 +112,7 @@ app.post("/api/submit-score", async (req, res) => {
     users[userId].bestDiff = cleanDiff;
   }
 
-  // 🔑 استقبال معرّف الغرفة الثابت من الواجهة أو توليده
+  // 🔑 استقبال معرّف الغرفة الثابت القادم من اللعبة
   const activeRoomKey = roomId || `${mode}_room_${rooms[mode]?.currentRoomId || 1}`;
 
   if (!rooms[mode]) rooms[mode] = { currentRoomId: 1, activeRooms: {} };
