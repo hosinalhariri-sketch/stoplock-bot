@@ -15,9 +15,9 @@ app.use(cors());
 const DB_FILE = "./users.json";
 const ROOMS_FILE = "./rooms.json";
 
-// 💰 الجوائز المالية لكل جدول عند اكتمال الغرفة (محدثة لتعزيز الربحية)
+// 💰 الجوائز المالية لكل جدول
 const PRIZES = {
-  duel:   { total: 0.10, p1: 0.10, p2: 0.00, p3: 0.00 }, // نمط 1v1 السريع (لاعبين اثنين فقط)
+  duel:   { total: 0.10, p1: 0.10, p2: 0.00, p3: 0.00 },
   bronze: { total: 0.50, p1: 0.25, p2: 0.15, p3: 0.10 },
   silver: { total: 1.50, p1: 0.80, p2: 0.45, p3: 0.25 },
   gold:   { total: 5.00, p1: 2.50, p2: 1.50, p3: 1.00 },
@@ -34,14 +34,13 @@ function saveData(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-// Ensure user object has all proper fields
 function ensureUserExists(users, userId, name) {
   if (!users[userId]) {
     users[userId] = {
       id: userId,
       username: name || `Player_${userId}`,
-      points: 2.0, // 🎁 2 Welcoming Free Points
-      balanceUSD: 0.00, // 💵 Cash Balance
+      points: 2.0,
+      balanceUSD: 0.00,
       bestDiff: null,
       lastClaimDate: null,
       referralsCount: 0,
@@ -89,7 +88,7 @@ app.post("/api/claim-daily", (req, res) => {
   res.json({ success: true, points: users[userId].points });
 });
 
-// 🏆 3. إرسال نتيجة المحاولة واحتساب أرباح الغرف (محدثة لدعم نمط 1v1 و10 لاعبين)
+// 🏆 3. إرسال نتيجة المحاولة (مع آلية تحديث نتائج اللاعب الموجود مسبقاً لمنع التلاعب)
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -99,7 +98,7 @@ app.post("/api/submit-score", async (req, res) => {
 
   ensureUserExists(users, userId);
 
-  // 1️⃣ خصم النقاط محددة التكلفة من السيرفر مباشرة
+  // 1️⃣ خصم النقاط محددة التكلفة إن وجدت
   if (cost && cost > 0) {
     users[userId].points = Math.max(0, (users[userId].points || 0) - cost);
   }
@@ -107,36 +106,44 @@ app.post("/api/submit-score", async (req, res) => {
   // 2️⃣ تنظيف وتقريب الرقم لـ 3 خانات عشرية
   const cleanDiff = parseFloat(Number(diff).toFixed(3));
 
-  // تحديث أفضل رقم شخصي
+  // تحديث الرقم الشخصي الأفضل على مستوى الحساب
   if (users[userId].bestDiff === null || cleanDiff < users[userId].bestDiff) {
     users[userId].bestDiff = cleanDiff;
   }
 
-  // إضافة النتيجة للغرفة الحالية
   if (!rooms[mode]) rooms[mode] = { currentRoomId: 1, players: [] };
   let currentRoom = rooms[mode];
-  currentRoom.players.push({ userId, username: users[userId].username, diff: cleanDiff });
 
-  // تحديد سعة الغرفة المطلوب اكتمالها (2 لنمط Duel / 10 للباقي)
+  // 🛡️ فحص وجود اللاعب في الغرفة الحالية (تحديث النتيجة بدلاً من إضافته كلاعب جديد)
+  const existingPlayerIndex = currentRoom.players.findIndex(p => String(p.userId) === String(userId));
+
+  if (existingPlayerIndex !== -1) {
+    // الاحتفاظ بالأفضل فقط بين المحاولات لنفس اللاعب في هذه الغرفة
+    if (cleanDiff < currentRoom.players[existingPlayerIndex].diff) {
+      currentRoom.players[existingPlayerIndex].diff = cleanDiff;
+    }
+  } else {
+    // تسجيل لاعب جديد في الغرفة
+    currentRoom.players.push({ userId, username: users[userId].username, diff: cleanDiff });
+  }
+
+  // تحديد عدد اللاعبين الحقيقيين المطلوب لاكتمال الغرفة (2 لنمط Duel / 10 لباقي الأنماط)
   const targetPlayers = mode === 'duel' ? 2 : 10;
 
-  // عند اكتمال الغرفة -> توزيع الأرباح
+  // 🏁 عند اكتمال الغرفة بحسب سعتها الفعلية -> توزيع الجوائز
   if (currentRoom.players.length >= targetPlayers) {
     currentRoom.players.sort((a, b) => a.diff - b.diff);
 
     const prize = PRIZES[mode] || PRIZES.bronze;
 
     if (mode === 'duel') {
-      // نمط المواجهة السريعة 1v1 (الفائز بالأقرب يحصل على الجائزة كاملة)
       const winner = currentRoom.players[0];
       users[winner.userId].balanceUSD = (users[winner.userId].balanceUSD || 0) + prize.p1;
 
       try {
-        await bot.api.sendMessage(winner.userId, `⚔️ **مبروك!** فزت في مواجهة 1v1 السريعة وحصلت على **$${prize.p1} USD** 💵!`);
+        await bot.api.sendMessage(winner.userId, `⚔️ **مبروك!** فزت في مواجهة الرأس بالرأس (1v1) وحصلت على **$${prize.p1} USD** 💵!`);
       } catch (e) {}
-
     } else {
-      // أنماط الغرف الـ 10 لاعبين
       const winner1 = currentRoom.players[0];
       const winner2 = currentRoom.players[1];
       const winner3 = currentRoom.players[2];
@@ -146,13 +153,13 @@ app.post("/api/submit-score", async (req, res) => {
       users[winner3.userId].balanceUSD = (users[winner3.userId].balanceUSD || 0) + prize.p3;
 
       try {
-        await bot.api.sendMessage(winner1.userId, `🥇 **مبروك!** حققت المركز الأول في جدول (${mode.toUpperCase()}) وحصلت على **$${prize.p1} USD** 💵!`);
-        await bot.api.sendMessage(winner2.userId, `🥈 **مبروك!** حققت المركز الثاني في جدول (${mode.toUpperCase()}) وحصلت على **$${prize.p2} USD** 💵!`);
-        await bot.api.sendMessage(winner3.userId, `🥉 **مبروك!** حققت المركز الثالث في جدول (${mode.toUpperCase()}) وحصلت على **$${prize.p3} USD** 💵!`);
+        await bot.api.sendMessage(winner1.userId, `🥇 **مبروك!** المركز الأول في جدول (${mode.toUpperCase()}) بفرصتك الأفضل! حصلت على **$${prize.p1} USD** 💵!`);
+        await bot.api.sendMessage(winner2.userId, `🥈 **مبروك!** المركز الثاني في جدول (${mode.toUpperCase()}) بفرصتك الأفضل! حصلت على **$${prize.p2} USD** 💵!`);
+        await bot.api.sendMessage(winner3.userId, `🥉 **مبروك!** المركز الثالث في جدول (${mode.toUpperCase()}) بفرصتك الأفضل! حصلت على **$${prize.p3} USD** 💵!`);
       } catch (e) {}
     }
 
-    // تفريغ الغرفة لبدء غرفة جديدة
+    // تجهيز غرفة جديدة وتفريغ القائمة
     rooms[mode] = { currentRoomId: currentRoom.currentRoomId + 1, players: [] };
   }
 
@@ -170,13 +177,11 @@ app.post("/api/submit-score", async (req, res) => {
 bot.command("start", async (ctx) => {
   const userId = ctx.from.id;
   const users = loadData(DB_FILE);
-  const args = ctx.match; // Referrer ID if present
+  const args = ctx.match;
 
   let isNewUser = !users[userId];
-
   ensureUserExists(users, userId, ctx.from.username || ctx.from.first_name);
 
-  // Handle Referral logic
   if (isNewUser && args && args !== String(userId)) {
     const referrerId = args;
     ensureUserExists(users, referrerId, `Player_${referrerId}`);
@@ -189,9 +194,7 @@ bot.command("start", async (ctx) => {
         referrerId,
         `🎉 **New Referral Bonus!**\nA friend joined using your link! You earned **+1 Free Point** 🪙\nTotal Balance: **${users[referrerId].points} Points**.`
       );
-    } catch (e) {
-      console.log("Could not notify referrer:", e.message);
-    }
+    } catch (e) {}
   }
 
   saveData(DB_FILE, users);
@@ -256,25 +259,25 @@ bot.callbackQuery("show_leaderboard", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// 📜 Rules & FAQ Callback (محدث بالقواعد الاقتصادية والتنافسية الجديدة)
+// 📜 Rules & FAQ Callback
 bot.callbackQuery("show_rules", async (ctx) => {
   const rulesText = `📜 **STOPLOCK RULES & FAQ:**\n\n` +
     `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, watch ads for +0.5 point (Up to 5 ads/day), and +1 point for each friend invited.\n\n` +
-    `2️⃣ **Game Modes (Target < 5.000s):**\n` +
-    `• 🎯 **Practice Arena:** Unlimited free warm-up mode.\n` +
-    `• ⚔️ **1v1 Duel:** Fast 2-player match! Winner takes cash.\n` +
-    `• 🥉 **Bronze:** Classic visible timer.\n` +
-    `• 🥈 **Silver:** Blind Mode (timer hides randomly!).\n` +
-    `• ❄️ **Gold:** Visible timer + 2 System Freezes.\n` +
-    `• 💎 **Mega Chaos:** Speed-Up Lag + System Freezes.\n\n` +
-    `3️⃣ **Free Ad Retries:** Watch a quick video ad after any try for a FREE instant retry without spending points!\n\n` +
-    `4️⃣ **Payouts & Withdrawals:** Minimum payout threshold is **$10.00 USD**. Requests are processed manually via Binance Pay / USDT / Vodafone Cash / PayPal.`;
+    `2️⃣ **Attempts Policy:** You get **Max 2 Tries** per room match (Initial + 1 Retry via Ad or Points). Your BEST score is kept!\n\n` +
+    `3️⃣ **Game Modes:**\n` +
+    `• 🎯 **Practice Arena:** Unlimited free warm-up.\n` +
+    `• ⚔️ **Head-to-Head Duel:** 2-Player Match ($0.10 Prize).\n` +
+    `• ⏱️ **Classic Precision:** Pure visible timer ($0.50 Prize).\n` +
+    `• 👁️‍🗨️ **Blind Sense:** Timer hides randomly ($1.50 Prize).\n` +
+    `• ❄️ **Frost Glitch:** Dynamic system freezes ($5.00 Prize).\n` +
+    `• 💎 **Quantum Chaos:** Speed Lags + Glitches ($12.50 Prize).\n\n` +
+    `4️⃣ **Payouts & Withdrawals:** Minimum payout threshold is **$10.00 USD**. Requests are processed manually via Binance Pay / USDT / Local Wallets.`;
   
   await ctx.reply(rulesText, { parse_mode: "Markdown" });
   await ctx.answerCallbackQuery();
 });
 
-// 💳 Payout Request Callback (محدث لـ $10.00 USD)
+// 💳 Payout Request Callback
 bot.callbackQuery("request_payout", async (ctx) => {
   const users = loadData(DB_FILE);
   const u = users[ctx.from.id];
@@ -292,13 +295,13 @@ bot.callbackQuery("request_payout", async (ctx) => {
     `Please reply to this message with your payment details:\n` +
     `• Binance Pay ID\n` +
     `• USDT Address (TRC20/BEP20)\n` +
-    `• Vodafone Cash / Local Wallet Number\n\n` +
+    `• Local Wallet Number\n\n` +
     `An admin will review and complete your transfer shortly! 🚀`
   );
   await ctx.answerCallbackQuery();
 });
 
-// Start Express Server for Mini App API Communication
+// Start Express Server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌐 API Server running on port ${PORT}`));
 
