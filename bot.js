@@ -15,8 +15,9 @@ app.use(cors());
 const DB_FILE = "./users.json";
 const ROOMS_FILE = "./rooms.json";
 
-// 💰 الجوائز المالية لكل جدول عند اكتمال الغرفة (10 لاعبين)
+// 💰 الجوائز المالية لكل جدول عند اكتمال الغرفة (محدثة لتعزيز الربحية)
 const PRIZES = {
+  duel:   { total: 0.10, p1: 0.10, p2: 0.00, p3: 0.00 }, // نمط 1v1 السريع (لاعبين اثنين فقط)
   bronze: { total: 0.50, p1: 0.25, p2: 0.15, p3: 0.10 },
   silver: { total: 1.50, p1: 0.80, p2: 0.45, p3: 0.25 },
   gold:   { total: 5.00, p1: 2.50, p2: 1.50, p3: 1.00 },
@@ -88,7 +89,7 @@ app.post("/api/claim-daily", (req, res) => {
   res.json({ success: true, points: users[userId].points });
 });
 
-// 🏆 3. إرسال نتيجة المحاولة واحتساب أرباح الغرف (10 لاعبين)
+// 🏆 3. إرسال نتيجة المحاولة واحتساب أرباح الغرف (محدثة لدعم نمط 1v1 و10 لاعبين)
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -103,7 +104,7 @@ app.post("/api/submit-score", async (req, res) => {
     users[userId].points = Math.max(0, (users[userId].points || 0) - cost);
   }
 
-  // 2️⃣ تنظيف وتقريب الرقم لـ 3 خانات عشرية فقط لإنهاء مشكلة الأرقام الطويلة
+  // 2️⃣ تنظيف وتقريب الرقم لـ 3 خانات عشرية
   const cleanDiff = parseFloat(Number(diff).toFixed(3));
 
   // تحديث أفضل رقم شخصي
@@ -116,24 +117,40 @@ app.post("/api/submit-score", async (req, res) => {
   let currentRoom = rooms[mode];
   currentRoom.players.push({ userId, username: users[userId].username, diff: cleanDiff });
 
-  // عند اكتمال الغرفة بـ 10 لاعبين -> توزيع الأرباح
-  if (currentRoom.players.length >= 10) {
+  // تحديد سعة الغرفة المطلوب اكتمالها (2 لنمط Duel / 10 للباقي)
+  const targetPlayers = mode === 'duel' ? 2 : 10;
+
+  // عند اكتمال الغرفة -> توزيع الأرباح
+  if (currentRoom.players.length >= targetPlayers) {
     currentRoom.players.sort((a, b) => a.diff - b.diff);
 
-    const winner1 = currentRoom.players[0];
-    const winner2 = currentRoom.players[1];
-    const winner3 = currentRoom.players[2];
     const prize = PRIZES[mode] || PRIZES.bronze;
 
-    users[winner1.userId].balanceUSD = (users[winner1.userId].balanceUSD || 0) + prize.p1;
-    users[winner2.userId].balanceUSD = (users[winner2.userId].balanceUSD || 0) + prize.p2;
-    users[winner3.userId].balanceUSD = (users[winner3.userId].balanceUSD || 0) + prize.p3;
+    if (mode === 'duel') {
+      // نمط المواجهة السريعة 1v1 (الفائز بالأقرب يحصل على الجائزة كاملة)
+      const winner = currentRoom.players[0];
+      users[winner.userId].balanceUSD = (users[winner.userId].balanceUSD || 0) + prize.p1;
 
-    try {
-      await bot.api.sendMessage(winner1.userId, `🥇 **مبروك!** حققت المركز الأول في جدول (${mode.toUpperCase()}) وحصلت على **$${prize.p1} USD** 💵!`);
-      await bot.api.sendMessage(winner2.userId, `🥈 **مبروك!** حققت المركز الثاني في جدول (${mode.toUpperCase()}) وحصلت على **$${prize.p2} USD** 💵!`);
-      await bot.api.sendMessage(winner3.userId, `🥉 **مبروك!** حققت المركز الثالث في جدول (${mode.toUpperCase()}) وحصلت على **$${prize.p3} USD** 💵!`);
-    } catch (e) {}
+      try {
+        await bot.api.sendMessage(winner.userId, `⚔️ **مبروك!** فزت في مواجهة 1v1 السريعة وحصلت على **$${prize.p1} USD** 💵!`);
+      } catch (e) {}
+
+    } else {
+      // أنماط الغرف الـ 10 لاعبين
+      const winner1 = currentRoom.players[0];
+      const winner2 = currentRoom.players[1];
+      const winner3 = currentRoom.players[2];
+
+      users[winner1.userId].balanceUSD = (users[winner1.userId].balanceUSD || 0) + prize.p1;
+      users[winner2.userId].balanceUSD = (users[winner2.userId].balanceUSD || 0) + prize.p2;
+      users[winner3.userId].balanceUSD = (users[winner3.userId].balanceUSD || 0) + prize.p3;
+
+      try {
+        await bot.api.sendMessage(winner1.userId, `🥇 **مبروك!** حققت المركز الأول في جدول (${mode.toUpperCase()}) وحصلت على **$${prize.p1} USD** 💵!`);
+        await bot.api.sendMessage(winner2.userId, `🥈 **مبروك!** حققت المركز الثاني في جدول (${mode.toUpperCase()}) وحصلت على **$${prize.p2} USD** 💵!`);
+        await bot.api.sendMessage(winner3.userId, `🥉 **مبروك!** حققت المركز الثالث في جدول (${mode.toUpperCase()}) وحصلت على **$${prize.p3} USD** 💵!`);
+      } catch (e) {}
+    }
 
     // تفريغ الغرفة لبدء غرفة جديدة
     rooms[mode] = { currentRoomId: currentRoom.currentRoomId + 1, players: [] };
@@ -191,7 +208,7 @@ bot.command("start", async (ctx) => {
       `• 🪙 **Points:** \`${currentUser.points.toFixed(1)}\`\n` +
       `• 💵 **Cash Balance:** \`$${currentUser.balanceUSD.toFixed(2)} USD\`\n` +
       `• 🏆 **Best Record:** \`No records yet\`\n\n` +
-      `📌 *Minimum Withdrawal Threshold:* **$7.00 USD**\n\n` +
+      `📌 *Minimum Withdrawal Threshold:* **$10.00 USD**\n\n` +
       `👇 Tap **Play StopLock Trend** below to begin!`
     : `⚡ **WELCOME BACK, CHAMPION!** ⚡\n\n` +
       `Ready to set a new record and claim top cash prizes? 🚀\n\n` +
@@ -199,7 +216,7 @@ bot.command("start", async (ctx) => {
       `• 🪙 **Points:** \`${currentUser.points.toFixed(1)}\`\n` +
       `• 💵 **Cash Balance:** \`$${currentUser.balanceUSD.toFixed(2)} USD\`\n` +
       `• 🏆 **Best Record:** \`${currentUser.bestDiff !== null ? currentUser.bestDiff + 's' : 'No records yet'}\`\n\n` +
-      `📌 *Minimum Withdrawal Threshold:* **$7.00 USD**\n\n` +
+      `📌 *Minimum Withdrawal Threshold:* **$10.00 USD**\n\n` +
       `👇 Tap **Play StopLock Trend** below to play!`;
 
   const keyboard = new InlineKeyboard()
@@ -210,7 +227,7 @@ bot.command("start", async (ctx) => {
     .text("🏆 Leaderboard", "show_leaderboard")
     .text("📜 Rules & FAQ", "show_rules")
     .row()
-    .text("💳 Withdraw ($7.00 Min)", "request_payout");
+    .text("💳 Withdraw ($10.00 Min)", "request_payout");
 
   await ctx.reply(welcomeText, {
     parse_mode: "Markdown",
@@ -239,31 +256,32 @@ bot.callbackQuery("show_leaderboard", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// 📜 Rules & FAQ Callback
+// 📜 Rules & FAQ Callback (محدث بالقواعد الاقتصادية والتنافسية الجديدة)
 bot.callbackQuery("show_rules", async (ctx) => {
   const rulesText = `📜 **STOPLOCK RULES & FAQ:**\n\n` +
-    `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, watch ads for +0.5 point (2 ads/day), and +1 point for each friend invited.\n\n` +
+    `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, watch ads for +0.5 point (Up to 5 ads/day), and +1 point for each friend invited.\n\n` +
     `2️⃣ **Game Modes (Target < 5.000s):**\n` +
     `• 🎯 **Practice Arena:** Unlimited free warm-up mode.\n` +
+    `• ⚔️ **1v1 Duel:** Fast 2-player match! Winner takes cash.\n` +
     `• 🥉 **Bronze:** Classic visible timer.\n` +
-    `• 🥈 **Silver:** Blind Mode (timer hides after 1s).\n` +
-    `• ❄️ **Gold:** Visible timer + 2 Scheduled System Freezes.\n` +
+    `• 🥈 **Silver:** Blind Mode (timer hides randomly!).\n` +
+    `• ❄️ **Gold:** Visible timer + 2 System Freezes.\n` +
     `• 💎 **Mega Chaos:** Speed-Up Lag + System Freezes.\n\n` +
-    `3️⃣ **Room Matches:** Each room holds 10 real players. Top 3 precision scores split the cash prize pool!\n\n` +
-    `4️⃣ **Payouts & Withdrawals:** Minimum payout threshold is **$7.00 USD**. Requests are processed manually via Binance Pay / USDT / Vodafone Cash / PayPal.`;
+    `3️⃣ **Free Ad Retries:** Watch a quick video ad after any try for a FREE instant retry without spending points!\n\n` +
+    `4️⃣ **Payouts & Withdrawals:** Minimum payout threshold is **$10.00 USD**. Requests are processed manually via Binance Pay / USDT / Vodafone Cash / PayPal.`;
   
   await ctx.reply(rulesText, { parse_mode: "Markdown" });
   await ctx.answerCallbackQuery();
 });
 
-// 💳 Payout Request Callback
+// 💳 Payout Request Callback (محدث لـ $10.00 USD)
 bot.callbackQuery("request_payout", async (ctx) => {
   const users = loadData(DB_FILE);
   const u = users[ctx.from.id];
 
-  if (!u || u.balanceUSD < 7.00) {
+  if (!u || u.balanceUSD < 10.00) {
     return ctx.answerCallbackQuery({ 
-      text: `❌ Insufficient balance! Minimum payout threshold is $7.00 USD. Your balance: $${u ? u.balanceUSD.toFixed(2) : '0.00'} USD.`, 
+      text: `❌ Insufficient balance! Minimum payout threshold is $10.00 USD. Your balance: $${u ? u.balanceUSD.toFixed(2) : '0.00'} USD.`, 
       show_alert: true 
     });
   }
