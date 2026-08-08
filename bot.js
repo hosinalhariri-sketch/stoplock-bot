@@ -15,12 +15,12 @@ app.use(cors());
 const DB_FILE = "./users.json";
 const ROOMS_FILE = "./rooms.json";
 
-// 💰 الجوائز المالية لكل جدول عند اكتمال الغرفة (20 لاعباً)
+// 💰 الجوائز المالية لكل جدول عند اكتمال الغرفة (10 لاعبين)
 const PRIZES = {
-  bronze: { total: 1.00, p1: 0.60, p2: 0.25, p3: 0.15 },
-  silver: { total: 3.00, p1: 1.80, p2: 0.80, p3: 0.40 },
-  gold:   { total: 10.00, p1: 6.00, p2: 2.50, p3: 1.50 },
-  chaos:  { total: 25.00, p1: 15.00, p2: 6.50, p3: 3.50 }
+  bronze: { total: 0.50, p1: 0.25, p2: 0.15, p3: 0.10 },
+  silver: { total: 1.50, p1: 0.80, p2: 0.45, p3: 0.25 },
+  gold:   { total: 5.00, p1: 2.50, p2: 1.50, p3: 1.00 },
+  chaos:  { total: 12.50, p1: 6.50, p2: 3.50, p3: 2.50 }
 };
 
 // Helper functions for Database
@@ -83,7 +83,7 @@ app.post("/api/claim-daily", (req, res) => {
   res.json({ success: true, points: users[userId].points });
 });
 
-// 🏆 3. إرسال نتيجة المحاولة واحتساب أرباح الغرف (20 لاعباً)
+// 🏆 3. إرسال نتيجة المحاولة واحتساب أرباح الغرف (10 لاعبين)
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -111,8 +111,8 @@ app.post("/api/submit-score", async (req, res) => {
   let currentRoom = rooms[mode];
   currentRoom.players.push({ userId, username: users[userId].username, diff: cleanDiff });
 
-  // عند اكتمال الغرفة بـ 20 لاعباً -> توزيع الأرباح
-  if (currentRoom.players.length >= 20) {
+  // عند اكتمال الغرفة بـ 10 لاعبين -> توزيع الأرباح
+  if (currentRoom.players.length >= 10) {
     currentRoom.players.sort((a, b) => a.diff - b.diff);
 
     const winner1 = currentRoom.players[0];
@@ -237,14 +237,14 @@ bot.callbackQuery("show_leaderboard", async (ctx) => {
 // 📜 Rules & FAQ Callback
 bot.callbackQuery("show_rules", async (ctx) => {
   const rulesText = `📜 **STOPLOCK RULES & FAQ:**\n\n` +
-    `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, and +1 point for each friend invited.\n\n` +
+    `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, watch ads for +1 point, and +1 point for each friend invited.\n\n` +
     `2️⃣ **Game Modes (Target < 5.000s):**\n` +
     `• 🎯 **Practice Arena:** Unlimited free warm-up mode.\n` +
     `• 🥉 **Bronze:** Classic visible timer.\n` +
     `• 🥈 **Silver:** Blind Mode (timer hides after 1s).\n` +
     `• ❄️ **Gold:** Visible timer + 2 Scheduled System Freezes.\n` +
     `• 💎 **Mega Chaos:** Speed-Up Lag + System Freezes.\n\n` +
-    `3️⃣ **Room Matches:** Each room holds 20 real players. Top 3 precision scores split the cash prize pool!\n\n` +
+    `3️⃣ **Room Matches:** Each room holds 10 real players. Top 3 precision scores split the cash prize pool!\n\n` +
     `4️⃣ **Payouts & Withdrawals:** Minimum payout threshold is **$7.00 USD**. Requests are processed manually via Binance Pay / USDT / Vodafone Cash / PayPal.`;
   
   await ctx.reply(rulesText, { parse_mode: "Markdown" });
