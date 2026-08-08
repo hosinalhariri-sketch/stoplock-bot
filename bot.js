@@ -239,6 +239,7 @@ bot.callbackQuery("show_rules", async (ctx) => {
   const rulesText = `📜 **STOPLOCK RULES & FAQ:**\n\n` +
     `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, and +1 point for each friend invited.\n\n` +
     `2️⃣ **Game Modes (Target < 5.000s):**\n` +
+    `• 🎯 **Practice Arena:** Unlimited free warm-up mode.\n` +
     `• 🥉 **Bronze:** Classic visible timer.\n` +
     `• 🥈 **Silver:** Blind Mode (timer hides after 1s).\n` +
     `• ❄️ **Gold:** Visible timer + 2 Scheduled System Freezes.\n` +
