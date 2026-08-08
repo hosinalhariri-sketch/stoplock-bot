@@ -85,7 +85,7 @@ app.post("/api/claim-daily", (req, res) => {
 
 // 🏆 3. إرسال نتيجة المحاولة واحتساب أرباح الغرف (20 لاعباً)
 app.post("/api/submit-score", async (req, res) => {
-  const { userId, mode, diff } = req.body;
+  const { userId, mode, diff, cost } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
 
   const users = loadData(DB_FILE);
@@ -93,15 +93,23 @@ app.post("/api/submit-score", async (req, res) => {
 
   ensureUserExists(users, userId);
 
+  // 1️⃣ خصم النقاط محددة التكلفة من السيرفر مباشرة
+  if (cost && cost > 0) {
+    users[userId].points = Math.max(0, (users[userId].points || 0) - cost);
+  }
+
+  // 2️⃣ تنظيف وتقريب الرقم لـ 3 خانات عشرية فقط لإنهاء مشكلة الأرقام الطويلة
+  const cleanDiff = parseFloat(Number(diff).toFixed(3));
+
   // تحديث أفضل رقم شخصي
-  if (users[userId].bestDiff === null || diff < users[userId].bestDiff) {
-    users[userId].bestDiff = diff;
+  if (users[userId].bestDiff === null || cleanDiff < users[userId].bestDiff) {
+    users[userId].bestDiff = cleanDiff;
   }
 
   // إضافة النتيجة للغرفة الحالية
   if (!rooms[mode]) rooms[mode] = { currentRoomId: 1, players: [] };
   let currentRoom = rooms[mode];
-  currentRoom.players.push({ userId, username: users[userId].username, diff });
+  currentRoom.players.push({ userId, username: users[userId].username, diff: cleanDiff });
 
   // عند اكتمال الغرفة بـ 20 لاعباً -> توزيع الأرباح
   if (currentRoom.players.length >= 20) {
@@ -226,7 +234,7 @@ bot.callbackQuery("show_leaderboard", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// 📜 Rules & FAQ Callback (محدث مع الخصائص الجديدة)
+// 📜 Rules & FAQ Callback
 bot.callbackQuery("show_rules", async (ctx) => {
   const rulesText = `📜 **STOPLOCK RULES & FAQ:**\n\n` +
     `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, and +1 point for each friend invited.\n\n` +
