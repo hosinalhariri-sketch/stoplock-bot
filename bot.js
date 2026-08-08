@@ -226,15 +226,15 @@ bot.callbackQuery("show_leaderboard", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// 📜 Rules & FAQ Callback
+// 📜 Rules & FAQ Callback (محدث مع الخصائص الجديدة)
 bot.callbackQuery("show_rules", async (ctx) => {
   const rulesText = `📜 **STOPLOCK RULES & FAQ:**\n\n` +
     `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, and +1 point for each friend invited.\n\n` +
-    `2️⃣ **Game Modes:**\n` +
+    `2️⃣ **Game Modes (Target < 5.000s):**\n` +
     `• 🥉 **Bronze:** Classic visible timer.\n` +
-    `• 🥈 **Silver:** Blind Mode (hides after 1s).\n` +
-    `• ❄️ **Gold:** Hidden timer + 2 Scheduled Freezes.\n` +
-    `• 💎 **Mega Chaos:** Visible timer + Random Lag/Jumps.\n\n` +
+    `• 🥈 **Silver:** Blind Mode (timer hides after 1s).\n` +
+    `• ❄️ **Gold:** Visible timer + 2 Scheduled System Freezes.\n` +
+    `• 💎 **Mega Chaos:** Speed-Up Lag + System Freezes.\n\n` +
     `3️⃣ **Room Matches:** Each room holds 20 real players. Top 3 precision scores split the cash prize pool!\n\n` +
     `4️⃣ **Payouts & Withdrawals:** Minimum payout threshold is **$7.00 USD**. Requests are processed manually via Binance Pay / USDT / Vodafone Cash / PayPal.`;
   
