@@ -15,7 +15,6 @@ app.use(cors());
 const DB_FILE = "./users.json";
 const ROOMS_FILE = "./rooms.json";
 
-// Helper functions for Database
 function loadData(file) {
   if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({}));
   try { return JSON.parse(fs.readFileSync(file)); } catch (e) { return {}; }
@@ -39,7 +38,6 @@ function ensureUserExists(users, userId, name) {
   }
 }
 
-// API Endpoints
 app.get("/", (req, res) => {
   res.status(200).send("🚀 StopLock Server is Live and Active!");
 });
@@ -253,7 +251,6 @@ async function checkAndFinalizeRoom(mode, roomId) {
   }
 }
 
-// Telegram Bot Handlers
 bot.on("pre_checkout_query", (ctx) => ctx.answerPreCheckoutQuery(true));
 
 bot.on("message:successful_payment", async (ctx) => {
@@ -357,11 +354,9 @@ bot.callbackQuery("show_rules", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// Start Express Server
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🌐 API Server running on port ${PORT}`));
 
-// Start Bot Engine
 bot.start({
   drop_pending_updates: true
 });
