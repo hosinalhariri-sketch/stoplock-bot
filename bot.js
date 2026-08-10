@@ -15,17 +15,26 @@ app.use(cors());
 const DB_FILE = "./users.json";
 const ROOMS_FILE = "./rooms.json";
 
-// Helper functions for Database
+// Helper functions for Database (Self-Healing Files)
 function loadData(file) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({}));
-  try { return JSON.parse(fs.readFileSync(file)); } catch (e) { return {}; }
+  try {
+    if (!fs.existsSync(file)) {
+      fs.writeFileSync(file, JSON.stringify({}), "utf8");
+      return {};
+    }
+    const content = fs.readFileSync(file, "utf8");
+    return content ? JSON.parse(content) : {};
+  } catch (e) {
+    console.error(`Error reading ${file}:`, e);
+    return {};
+  }
 }
 
 function saveData(file, data) {
   try {
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
   } catch (e) {
-    console.error("Save error:", e);
+    console.error(`Error writing ${file}:`, e);
   }
 }
 
