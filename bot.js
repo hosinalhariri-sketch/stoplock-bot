@@ -60,7 +60,7 @@ app.get("/api/user-data/:userId", (req, res) => {
 app.get("/api/top50", (req, res) => {
   const users = loadData(DB_FILE);
   const sorted = Object.values(users)
-    .filter(u => u.bestDiff !== null)
+    .filter(u => u && u.bestDiff !== null && u.bestDiff !== undefined)
     .sort((a, b) => a.bestDiff - b.bestDiff)
     .slice(0, 50);
 
@@ -87,7 +87,7 @@ app.post("/api/claim-daily", (req, res) => {
   res.json({ success: true, points: users[userId].points });
 });
 
-// ⭐ 4. مسار إنشاء فاتورة الدفع بـ Telegram Stars للشراء
+// ⭐ 4. مسار إنشاء فاتورة الدفع بـ Telegram Stars لشراء المظاهر أو التحديات
 app.post("/api/create-stars-invoice", async (req, res) => {
   const { userId, mode, starsCount } = req.body;
   if (!userId || !starsCount) return res.status(400).json({ error: "Missing data" });
@@ -97,8 +97,8 @@ app.post("/api/create-stars-invoice", async (req, res) => {
       `StopLock - ${mode.toUpperCase()} Item`,
       `Stars Entry / Cosmetics unlock for ${mode.toUpperCase()}`,
       JSON.stringify({ userId, mode }),
-      "", // متطلب فارغ لنجوم تلجرام
-      "XTR", // رمز عملة Telegram Stars
+      "", 
+      "XTR", 
       [{ label: `${starsCount} Stars`, amount: starsCount }]
     );
 
@@ -160,7 +160,7 @@ app.post("/api/submit-score", async (req, res) => {
 
   const cleanDiff = parseFloat(Number(diff).toFixed(3));
 
-  if (users[userId].bestDiff === null || cleanDiff < users[userId].bestDiff) {
+  if (users[userId].bestDiff === null || users[userId].bestDiff === undefined || cleanDiff < users[userId].bestDiff) {
     users[userId].bestDiff = cleanDiff;
   }
 
@@ -205,7 +205,7 @@ app.post("/api/submit-score", async (req, res) => {
   });
 });
 
-// 🏁 دالة إنهاء الغرفة وتحديث الترتيب
+// 🏁 دالة إنهاء الغرفة وتوزيع مكافآت النقاط
 async function checkAndFinalizeRoom(mode, roomId) {
   const rooms = loadData(ROOMS_FILE);
   const users = loadData(DB_FILE);
@@ -225,20 +225,22 @@ async function checkAndFinalizeRoom(mode, roomId) {
       const winner = currentRoomPlayers[0];
       const loser = currentRoomPlayers[1];
 
-      // إعطاء نقاط مكافأة للفائز في النزال
-      users[winner.userId].points = (users[winner.userId].points || 0) + 2;
+      if (winner && users[winner.userId]) {
+        users[winner.userId].points = (users[winner.userId].points || 0) + 2;
+        try {
+          await bot.api.sendMessage(winner.userId, `⚔️ **مبروك الفوز!**\nانتصرت في المواجهة بفارق \`${winner.diff}s\` مقابل \`${loser ? loser.diff : '-'}s\` لمنافسك!\nوحصلت على **+2 نقطة 🪙**!`);
+        } catch (e) {}
+      }
 
-      try {
-        await bot.api.sendMessage(winner.userId, `⚔️ **مبروك الفوز!**\nانتصرت في المواجهة بأسلوب ممتاز بفارق \`${winner.diff}s\` مقابل \`${loser.diff}s\` لمنافسك!\nوحصلت على **+2 نقطة 🪙** مكافأة شرفية!`);
-      } catch (e) {}
-
-      try {
-        await bot.api.sendMessage(loser.userId, `⚔️ **هاردلك!**\nلقد خسرت المواجهة بفارق \`${loser.diff}s\` مقابل \`${winner.diff}s\` لمنافسك.`);
-      } catch (e) {}
+      if (loser && users[loser.userId]) {
+        try {
+          await bot.api.sendMessage(loser.userId, `⚔️ **هاردلك!**\nلقد خسرت المواجهة بفارق \`${loser.diff}s\` مقابل \`${winner.diff}s\` لمنافسك.`);
+        } catch (e) {}
+      }
 
     } else {
       const winner1 = currentRoomPlayers[0];
-      if (winner1) {
+      if (winner1 && users[winner1.userId]) {
         users[winner1.userId].points = (users[winner1.userId].points || 0) + 5;
         try { await bot.api.sendMessage(winner1.userId, `🥇 **المركز الأول!** في جدول (${mode.toUpperCase()}) بفارق \`${winner1.diff}s\`! حصلت على **+5 نقاط 🪙**!`); } catch (e) {}
       }
@@ -305,7 +307,7 @@ bot.command("start", async (ctx) => {
       `Ready to break your record and climb the Global Top 50? 🚀\n\n` +
       `📊 **YOUR PROFILE:**\n` +
       `• 🪙 **Points:** \`${currentUser.points.toFixed(1)}\`\n` +
-      `• 🏆 **Best Record:** \`${currentUser.bestDiff !== null ? currentUser.bestDiff + 's' : 'No records yet'}\`\n\n` +
+      `• 🏆 **Best Record:** \`${currentUser.bestDiff !== null && currentUser.bestDiff !== undefined ? currentUser.bestDiff + 's' : 'No records yet'}\`\n\n` +
       `👇 Tap **Play StopLock Trend** below to play!`;
 
   const keyboard = new InlineKeyboard()
@@ -325,7 +327,7 @@ bot.command("start", async (ctx) => {
 bot.callbackQuery("show_leaderboard", async (ctx) => {
   const users = loadData(DB_FILE);
   const sorted = Object.values(users)
-    .filter(u => u.bestDiff !== null)
+    .filter(u => u && u.bestDiff !== null && u.bestDiff !== undefined)
     .sort((a, b) => a.bestDiff - b.bestDiff)
     .slice(0, 15);
 
