@@ -1,4 +1,4 @@
-const { Bot, InlineKeyboard } = require("grammy");
+const { Bot, InlineKeyboard, webhookCallback } = require("grammy");
 const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
@@ -6,6 +6,7 @@ const cors = require("cors");
 // 🔑 Telegram Bot Token & WebApp URL
 const BOT_TOKEN = process.env.BOT_TOKEN || "8897585537:AAGMHfwFKnWUUFnALqDCFtgKJjH6bKRia00";
 const MINI_APP_URL = "https://stop-lock-challenge.vercel.app/";
+const SERVER_URL = "https://stoplock-bot.onrender.com";
 
 const bot = new Bot(BOT_TOKEN);
 const app = express();
@@ -52,15 +53,18 @@ function ensureUserExists(users, userId, name) {
 }
 
 // ==========================================
+// 🔗 TELEGRAM WEBHOOK MIDDLEWARE
+// ==========================================
+app.use("/telegram-webhook", webhookCallback(bot, "express"));
+
+// ==========================================
 // 🌐 API ENDPOINTS (FOR MINI APP CONNECTION)
 // ==========================================
 
-// 🟢 0. مسار فحص الاستجابة الرئيسي
 app.get("/", (req, res) => {
   res.status(200).send("🚀 StopLock Server is Live and Active!");
 });
 
-// 🔄 1. جلب بيانات المستخدم المحدثة
 app.get("/api/user-data/:userId", (req, res) => {
   const users = loadData(DB_FILE);
   const u = users[req.params.userId];
@@ -68,7 +72,6 @@ app.get("/api/user-data/:userId", (req, res) => {
   res.json({ points: u.points, balanceUSD: u.balanceUSD });
 });
 
-// 🏆 2. مسار جلب قائمة أسرع 50 لاعب عالمياً للـ WebApp
 app.get("/api/top50", (req, res) => {
   const users = loadData(DB_FILE);
   const sorted = Object.values(users)
@@ -79,7 +82,6 @@ app.get("/api/top50", (req, res) => {
   res.json(sorted);
 });
 
-// 🎁 3. المطالبة بالمكافأة اليومية (+0.5 نقطة)
 app.post("/api/claim-daily", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -99,7 +101,6 @@ app.post("/api/claim-daily", (req, res) => {
   res.json({ success: true, points: users[userId].points });
 });
 
-// ⭐ 4. مسار إنشاء فاتورة الدفع بـ Telegram Stars
 app.post("/api/create-stars-invoice", async (req, res) => {
   const { userId, mode, starsCount } = req.body;
   if (!userId || !starsCount) return res.status(400).json({ error: "Missing data" });
@@ -121,7 +122,6 @@ app.post("/api/create-stars-invoice", async (req, res) => {
   }
 });
 
-// 🔍 5. مسار جلب حالة الغرفة واللاعبين
 app.get("/api/room-status/:roomId", (req, res) => {
   const { roomId } = req.params;
   const rooms = loadData(ROOMS_FILE);
@@ -137,7 +137,6 @@ app.get("/api/room-status/:roomId", (req, res) => {
   res.json({ players: foundRoom || [] });
 });
 
-// 🚪 6. مسار خروج اللاعب واكتفاءه بالنتيجة الحالية
 app.post("/api/leave-room", async (req, res) => {
   const { userId, roomId, mode } = req.body;
   if (!userId || !roomId || !mode) return res.status(400).json({ error: "Missing data" });
@@ -156,7 +155,6 @@ app.post("/api/leave-room", async (req, res) => {
   res.json({ success: true });
 });
 
-// 🏆 7. إرسال نتيجة المحاولة وتحديث أرقام اللاعبين
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost, roomId, attemptNumber } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -218,7 +216,6 @@ app.post("/api/submit-score", async (req, res) => {
   });
 });
 
-// 🏁 دالة إنهاء الغرفة وتوزيع الجوائز
 async function checkAndFinalizeRoom(mode, roomId) {
   const rooms = loadData(ROOMS_FILE);
   const users = loadData(DB_FILE);
@@ -281,7 +278,7 @@ async function checkAndFinalizeRoom(mode, roomId) {
 }
 
 // ==========================================
-// 🤖 TELEGRAM BOT COMMANDS & HANDLERS
+// 🤖 TELEGRAM BOT COMMANDS
 // ==========================================
 
 bot.on("pre_checkout_query", (ctx) => ctx.answerPreCheckoutQuery(true));
@@ -416,12 +413,15 @@ bot.callbackQuery("request_payout", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// Start Express Server
+// Start Express Server & Set Telegram Webhook
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🌐 API Server running on port ${PORT}`));
-
-// Start Bot Engine
-bot.start({
-  drop_pending_updates: true
+app.listen(PORT, async () => {
+  console.log(`🌐 API Server running on port ${PORT}`);
+  try {
+    const webhookUrl = `${SERVER_URL}/telegram-webhook`;
+    await bot.api.setWebhook(webhookUrl, { drop_pending_updates: true });
+    console.log(`🚀 Webhook successfully registered: ${webhookUrl}`);
+  } catch (err) {
+    console.error("❌ Failed to set webhook:", err.message);
+  }
 });
-console.log("🚀 StopLock Bot Backend is active and running...");
