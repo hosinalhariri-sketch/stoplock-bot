@@ -3,8 +3,8 @@ const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 
-// 🔑 Telegram Bot Token & WebApp URL
-const BOT_TOKEN = process.env.BOT_TOKEN || "8897585537:AAGMHfwFKnWUUFnALqDCFtgKJjH6bKRia00";
+// 🔑 Telegram Bot Token & WebApp URL (Token is read exclusively from Environment Variables)
+const BOT_TOKEN = process.env.BOT_TOKEN;
 const MINI_APP_URL = "https://stop-lock-challenge.vercel.app/";
 const SERVER_URL = "https://stoplock-bot.onrender.com";
 
