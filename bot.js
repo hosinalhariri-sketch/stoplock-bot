@@ -3,7 +3,7 @@ const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 
-// 🔑 Telegram Bot Token & WebApp URL
+// Telegram Bot Token & WebApp URL
 const BOT_TOKEN = process.env.BOT_TOKEN || "8897585537:AAG08N6a05gtkhHgs6GD-UMnpoExZaSd1sQ"; 
 const MINI_APP_URL = "https://stop-lock-challenge.vercel.app/";
 
@@ -39,16 +39,11 @@ function ensureUserExists(users, userId, name) {
   }
 }
 
-// ==========================================
-// 🌐 API ENDPOINTS (FOR MINI APP CONNECTION)
-// ==========================================
-
-// 🟢 0. Health Check Endpoint
+// API Endpoints
 app.get("/", (req, res) => {
   res.status(200).send("🚀 StopLock Server is Live and Active!");
 });
 
-// 🔄 1. Get Updated User Data
 app.get("/api/user-data/:userId", (req, res) => {
   const users = loadData(DB_FILE);
   const u = users[req.params.userId];
@@ -56,7 +51,6 @@ app.get("/api/user-data/:userId", (req, res) => {
   res.json({ points: u.points, bestDiff: u.bestDiff });
 });
 
-// 🏆 2. Get Top 50 Leaderboard
 app.get("/api/top50", (req, res) => {
   const users = loadData(DB_FILE);
   const sorted = Object.values(users)
@@ -67,7 +61,6 @@ app.get("/api/top50", (req, res) => {
   res.json(sorted);
 });
 
-// 🎁 3. Claim Daily Reward (+0.5 Point)
 app.post("/api/claim-daily", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -87,7 +80,6 @@ app.post("/api/claim-daily", (req, res) => {
   res.json({ success: true, points: users[userId].points });
 });
 
-// ⭐ 4. Telegram Stars Invoice Creation Endpoint
 app.post("/api/create-stars-invoice", async (req, res) => {
   const { userId, mode, starsCount } = req.body;
   if (!userId || !starsCount) return res.status(400).json({ error: "Missing data" });
@@ -109,7 +101,6 @@ app.post("/api/create-stars-invoice", async (req, res) => {
   }
 });
 
-// 🔍 5. Fetch Room Status and Players
 app.get("/api/room-status/:roomId", (req, res) => {
   const { roomId } = req.params;
   const rooms = loadData(ROOMS_FILE);
@@ -125,7 +116,6 @@ app.get("/api/room-status/:roomId", (req, res) => {
   res.json({ players: foundRoom || [] });
 });
 
-// 🚪 6. Leave Room Endpoint
 app.post("/api/leave-room", async (req, res) => {
   const { userId, roomId, mode } = req.body;
   if (!userId || !roomId || !mode) return res.status(400).json({ error: "Missing data" });
@@ -144,7 +134,6 @@ app.post("/api/leave-room", async (req, res) => {
   res.json({ success: true });
 });
 
-// 🏆 7. Submit Score & Update Player Stats
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost, roomId, attemptNumber } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -205,7 +194,6 @@ app.post("/api/submit-score", async (req, res) => {
   });
 });
 
-// 🏁 Finalize Room Match
 async function checkAndFinalizeRoom(mode, roomId) {
   const rooms = loadData(ROOMS_FILE);
   const users = loadData(DB_FILE);
@@ -265,14 +253,9 @@ async function checkAndFinalizeRoom(mode, roomId) {
   }
 }
 
-// ==========================================
-// 🤖 TELEGRAM BOT COMMANDS & HANDLERS
-// ==========================================
-
-// ⭐ Pre-checkout Handler for Telegram Stars
+// Telegram Bot Handlers
 bot.on("pre_checkout_query", (ctx) => ctx.answerPreCheckoutQuery(true));
 
-// ⭐ Successful Payment Handler for Telegram Stars
 bot.on("message:successful_payment", async (ctx) => {
   try {
     await ctx.reply("🌟 **Payment Confirmed!**\nGood luck in your match! 🚀");
@@ -375,7 +358,7 @@ bot.callbackQuery("show_rules", async (ctx) => {
 });
 
 // Start Express Server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🌐 API Server running on port ${PORT}`));
 
 // Start Bot Engine
