@@ -3,15 +3,27 @@ const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 
-// 🔑 Telegram Bot Token & WebApp URL (Token is read exclusively from Environment Variables)
+// 🔑 Telegram Bot Token & WebApp URL
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const MINI_APP_URL = "https://stop-lock-challenge.vercel.app/";
 const SERVER_URL = "https://stoplock-bot.onrender.com";
 
+if (!BOT_TOKEN) {
+  console.error("❌ BOT_TOKEN is missing from Environment Variables!");
+}
+
 const bot = new Bot(BOT_TOKEN);
 const app = express();
-app.use(express.json());
+
 app.use(cors());
+
+// ==========================================
+// 🔗 TELEGRAM WEBHOOK MIDDLEWARE (MUST BE BEFORE express.json)
+// ==========================================
+app.use("/telegram-webhook", webhookCallback(bot, "express"));
+
+// Express Middleware for standard routes
+app.use(express.json());
 
 const DB_FILE = "./users.json";
 const ROOMS_FILE = "./rooms.json";
@@ -51,11 +63,6 @@ function ensureUserExists(users, userId, name) {
     if (users[userId].balanceUSD === undefined) users[userId].balanceUSD = 0.00;
   }
 }
-
-// ==========================================
-// 🔗 TELEGRAM WEBHOOK MIDDLEWARE
-// ==========================================
-app.use("/telegram-webhook", webhookCallback(bot, "express"));
 
 // ==========================================
 // 🌐 API ENDPOINTS (FOR MINI APP CONNECTION)
@@ -413,15 +420,16 @@ bot.callbackQuery("request_payout", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// Start Express Server & Set Telegram Webhook
+// Start Express Server
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`🌐 API Server running on port ${PORT}`);
-  try {
+  
+  // Register Webhook asynchronously after the HTTP server is fully listening
+  if (BOT_TOKEN) {
     const webhookUrl = `${SERVER_URL}/telegram-webhook`;
-    await bot.api.setWebhook(webhookUrl, { drop_pending_updates: true });
-    console.log(`🚀 Webhook successfully registered: ${webhookUrl}`);
-  } catch (err) {
-    console.error("❌ Failed to set webhook:", err.message);
+    bot.api.setWebhook(webhookUrl, { drop_pending_updates: true })
+      .then(() => console.log(`🚀 Webhook successfully registered: ${webhookUrl}`))
+      .catch((err) => console.error("❌ Failed to set webhook:", err.message));
   }
 });
