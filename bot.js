@@ -4,7 +4,7 @@ const express = require("express");
 const cors = require("cors");
 
 // 🔑 Telegram Bot Token & WebApp URL
-const BOT_TOKEN = process.env.BOT_TOKEN || "8897585537:AAGMHfwFKnWUUFnALqDCFtgKJjH6bKRia00"; 
+const BOT_TOKEN = process.env.BOT_TOKEN || "8897585537:AAGMHfwFKnWUUFnALqDCFtgKJjH6bKRia00";
 const MINI_APP_URL = "https://stop-lock-challenge.vercel.app/";
 
 const bot = new Bot(BOT_TOKEN);
