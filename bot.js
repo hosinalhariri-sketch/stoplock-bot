@@ -15,6 +15,15 @@ app.use(cors());
 const DB_FILE = "./users.json";
 const ROOMS_FILE = "./rooms.json";
 
+// 💰 الجوائز المالية لكل جدول
+const PRIZES = {
+  duel:   { total: 0.10, p1: 0.10, p2: 0.00, p3: 0.00 },
+  bronze: { total: 0.50, p1: 0.25, p2: 0.15, p3: 0.10 },
+  silver: { total: 1.50, p1: 0.80, p2: 0.45, p3: 0.25 },
+  gold:   { total: 5.00, p1: 2.50, p2: 1.50, p3: 1.00 },
+  chaos:  { total: 12.50, p1: 6.50, p2: 3.50, p3: 2.50 }
+};
+
 // Helper functions for Database
 function loadData(file) {
   if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({}));
@@ -31,11 +40,14 @@ function ensureUserExists(users, userId, name) {
       id: userId,
       username: name || `Player_${userId}`,
       points: 2.0,
+      balanceUSD: 0.00,
       bestDiff: null,
       lastClaimDate: null,
       referralsCount: 0,
       createdAt: new Date().toISOString()
     };
+  } else {
+    if (users[userId].balanceUSD === undefined) users[userId].balanceUSD = 0.00;
   }
 }
 
@@ -43,31 +55,20 @@ function ensureUserExists(users, userId, name) {
 // 🌐 API ENDPOINTS (FOR MINI APP CONNECTION)
 // ==========================================
 
-// 🟢 0. Health Check Endpoint
+// 🟢 0. مسار فحص الاستجابة الرئيسي
 app.get("/", (req, res) => {
   res.status(200).send("🚀 StopLock Server is Live and Active!");
 });
 
-// 🔄 1. Get Updated User Data
+// 🔄 1. جلب بيانات المستخدم المحدثة
 app.get("/api/user-data/:userId", (req, res) => {
   const users = loadData(DB_FILE);
   const u = users[req.params.userId];
   if (!u) return res.status(404).json({ error: "User not found" });
-  res.json({ points: u.points, bestDiff: u.bestDiff });
+  res.json({ points: u.points, balanceUSD: u.balanceUSD });
 });
 
-// 🏆 2. Get Top 50 Leaderboard
-app.get("/api/top50", (req, res) => {
-  const users = loadData(DB_FILE);
-  const sorted = Object.values(users)
-    .filter(u => u && u.bestDiff !== null && u.bestDiff !== undefined)
-    .sort((a, b) => a.bestDiff - b.bestDiff)
-    .slice(0, 50);
-
-  res.json(sorted);
-});
-
-// 🎁 3. Claim Daily Reward (+0.5 Point)
+// 🎁 2. المطالبة بالمكافأة اليومية (+0.5 نقطة)
 app.post("/api/claim-daily", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -80,14 +81,14 @@ app.post("/api/claim-daily", (req, res) => {
     return res.status(400).json({ error: "Already claimed today", points: users[userId].points });
   }
 
-  users[userId].points = (users[userId].points || 0) + 0.5;
+  users[userId].points = (users[userId].points || 0) + 1000;
   users[userId].lastClaimDate = today;
   saveData(DB_FILE, users);
 
   res.json({ success: true, points: users[userId].points });
 });
 
-// ⭐ 4. Telegram Stars Invoice Creation Endpoint
+// ⭐ 3. مسار إنشاء فاتورة الدفع بـ Telegram Stars
 app.post("/api/create-stars-invoice", async (req, res) => {
   const { userId, mode, starsCount } = req.body;
   if (!userId || !starsCount) return res.status(400).json({ error: "Missing data" });
@@ -97,8 +98,8 @@ app.post("/api/create-stars-invoice", async (req, res) => {
       `StopLock - ${mode.toUpperCase()} Entry`,
       `Entry fee for ${mode.toUpperCase()} tournament room`,
       JSON.stringify({ userId, mode }),
-      "", // Empty requirement for Telegram Stars
-      "XTR", // Currency code for Telegram Stars
+      "", // متطلب فارغ لنجوم تلجرام
+      "XTR", // رمز عملة Telegram Stars
       [{ label: `${starsCount} Stars Entry`, amount: starsCount }]
     );
 
@@ -109,7 +110,7 @@ app.post("/api/create-stars-invoice", async (req, res) => {
   }
 });
 
-// 🔍 5. Fetch Room Status and Players
+// 🔍 4. مسار جلب حالة الغرفة واللاعبين
 app.get("/api/room-status/:roomId", (req, res) => {
   const { roomId } = req.params;
   const rooms = loadData(ROOMS_FILE);
@@ -125,7 +126,7 @@ app.get("/api/room-status/:roomId", (req, res) => {
   res.json({ players: foundRoom || [] });
 });
 
-// 🚪 6. Leave Room Endpoint
+// 🚪 5. مسار خروج اللاعب واكتفاءه بالنتيجة الحالية
 app.post("/api/leave-room", async (req, res) => {
   const { userId, roomId, mode } = req.body;
   if (!userId || !roomId || !mode) return res.status(400).json({ error: "Missing data" });
@@ -135,16 +136,17 @@ app.post("/api/leave-room", async (req, res) => {
     let currentRoomPlayers = rooms[mode].activeRooms[roomId];
     const player = currentRoomPlayers.find(p => String(p.userId) === String(userId));
     if (player) {
-      player.hasFinished = true;
+      player.hasFinished = true; // تميز اللاعب بأنه أنهى دورته
     }
     saveData(ROOMS_FILE, rooms);
     
+    // التحقق مما إذا اكتملت الغرفة بعد خروجه
     await checkAndFinalizeRoom(mode, roomId);
   }
   res.json({ success: true });
 });
 
-// 🏆 7. Submit Score & Update Player Stats
+// 🏆 6. إرسال نتيجة المحاولة وتحديث أرقام اللاعبين
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost, roomId, attemptNumber } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -177,6 +179,7 @@ app.post("/api/submit-score", async (req, res) => {
   const existingPlayerIndex = currentRoomPlayers.findIndex(p => String(p.userId) === String(userId));
 
   if (existingPlayerIndex !== -1) {
+    // الاحتفاظ بالرقم الأفضل للاعب في الغرفة
     if (cleanDiff < currentRoomPlayers[existingPlayerIndex].diff) {
       currentRoomPlayers[existingPlayerIndex].diff = cleanDiff;
     }
@@ -195,17 +198,19 @@ app.post("/api/submit-score", async (req, res) => {
   saveData(DB_FILE, users);
   saveData(ROOMS_FILE, rooms);
 
+  // التحقق مما إذا أنهى جميع اللاعبين محاولاتهم
   await checkAndFinalizeRoom(mode, activeRoomKey);
 
   res.json({ 
     success: true, 
+    balanceUSD: users[userId].balanceUSD || 0, 
     points: users[userId].points,
     roomId: activeRoomKey,
     roomPlayers: currentRoomPlayers
   });
 });
 
-// 🏁 Finalize Room Match
+// 🏁 دالة إنهاء الغرفة وتوزيع الجوائز
 async function checkAndFinalizeRoom(mode, roomId) {
   const rooms = loadData(ROOMS_FILE);
   const users = loadData(DB_FILE);
@@ -218,42 +223,42 @@ async function checkAndFinalizeRoom(mode, roomId) {
   const isCapacityFull = currentRoomPlayers.length >= targetPlayers;
   const allPlayersFinished = currentRoomPlayers.every(p => p.hasFinished === true);
 
+  // الشرط: اكتمال العدد + إنهاء جميع المتواجدين محاولاتهم
   if (isCapacityFull && allPlayersFinished) {
     currentRoomPlayers.sort((a, b) => a.diff - b.diff);
+
+    const prize = PRIZES[mode] || PRIZES.bronze;
 
     if (mode === 'duel') {
       const winner = currentRoomPlayers[0];
       const loser = currentRoomPlayers[1];
 
-      if (winner && users[winner.userId]) {
-        users[winner.userId].points = (users[winner.userId].points || 0) + 2;
-        try {
-          await bot.api.sendMessage(
-            winner.userId, 
-            `⚔️ **Victory!**\nYou won the duel with a difference of \`${winner.diff}s\` vs \`${loser ? loser.diff : '-'}s\`!\nEarned **+2 Bonus Points** 🪙!`
-          );
-        } catch (e) {}
-      }
+      users[winner.userId].balanceUSD = (users[winner.userId].balanceUSD || 0) + prize.p1;
 
-      if (loser && users[loser.userId]) {
-        try {
-          await bot.api.sendMessage(
-            loser.userId, 
-            `⚔️ **Defeat!**\nYou lost the duel with a difference of \`${loser.diff}s\` vs \`${winner.diff}s\`.`
-          );
-        } catch (e) {}
-      }
+      try {
+        await bot.api.sendMessage(winner.userId, `⚔️ **مبروك الفوز!**\nلقد انتصرت في المواجهة بأسلوب ممتاز بفارق \`${winner.diff}s\` مقابل \`${loser.diff}s\` لمنافسك!\nوحصلت على **$${prize.p1} USD** 💵!`);
+      } catch (e) {}
+
+      try {
+        await bot.api.sendMessage(loser.userId, `⚔️ **هاردلك!**\nلقد خسرت المواجهة بفارق \`${loser.diff}s\` مقابل \`${winner.diff}s\` لمنافسك.`);
+      } catch (e) {}
 
     } else {
       const winner1 = currentRoomPlayers[0];
-      if (winner1 && users[winner1.userId]) {
-        users[winner1.userId].points = (users[winner1.userId].points || 0) + 5;
-        try {
-          await bot.api.sendMessage(
-            winner1.userId, 
-            `🥇 **1st Place!** In (${mode.toUpperCase()}) room with \`${winner1.diff}s\` difference! Earned **+5 Bonus Points** 🪙!`
-          );
-        } catch (e) {}
+      const winner2 = currentRoomPlayers[1];
+      const winner3 = currentRoomPlayers[2];
+
+      if (winner1) {
+        users[winner1.userId].balanceUSD = (users[winner1.userId].balanceUSD || 0) + prize.p1;
+        try { await bot.api.sendMessage(winner1.userId, `🥇 **المركز الأول!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p1} USD** 💵!`); } catch (e) {}
+      }
+      if (winner2) {
+        users[winner2.userId].balanceUSD = (users[winner2.userId].balanceUSD || 0) + prize.p2;
+        try { await bot.api.sendMessage(winner2.userId, `🥈 **المركز الثاني!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p2} USD** 💵!`); } catch (e) {}
+      }
+      if (winner3) {
+        users[winner3.userId].balanceUSD = (users[winner3.userId].balanceUSD || 0) + prize.p3;
+        try { await bot.api.sendMessage(winner3.userId, `🥉 **المركز الثالث!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p3} USD** 💵!`); } catch (e) {}
       }
     }
 
@@ -269,13 +274,13 @@ async function checkAndFinalizeRoom(mode, roomId) {
 // 🤖 TELEGRAM BOT COMMANDS & HANDLERS
 // ==========================================
 
-// ⭐ Pre-checkout Handler for Telegram Stars
+// ⭐ معالجة دفع النجوم عبر تلجرام (Pre-checkout query)
 bot.on("pre_checkout_query", (ctx) => ctx.answerPreCheckoutQuery(true));
 
-// ⭐ Successful Payment Handler for Telegram Stars
+// ⭐ معالجة عملية الدفع الناجحة بالنجوم
 bot.on("message:successful_payment", async (ctx) => {
   try {
-    await ctx.reply("🌟 **Payment Confirmed!**\nGood luck in your match! 🚀");
+    await ctx.reply("🌟 **تم تأكيد عملية الدفع بالنجوم بنجاح!**\nبالتوفيق في المنافسة! 🚀");
   } catch (e) {}
 });
 
@@ -314,22 +319,28 @@ bot.command("start", async (ctx) => {
       `You received **2 FREE POINTS** to start! 🪙\n\n` +
       `📊 **YOUR PROFILE:**\n` +
       `• 🪙 **Points:** \`${currentUser.points.toFixed(1)}\`\n` +
+      `• 💵 **Cash Balance:** \`$${currentUser.balanceUSD.toFixed(2)} USD\`\n` +
       `• 🏆 **Best Record:** \`No records yet\`\n\n` +
+      `📌 *Minimum Withdrawal Threshold:* **$10.00 USD**\n\n` +
       `👇 Tap **Play StopLock Trend** below to begin!`
     : `⚡ **WELCOME BACK, CHAMPION!** ⚡\n\n` +
-      `Ready to set a new record and climb the Global Leaderboard? 🚀\n\n` +
+      `Ready to set a new record and claim top cash prizes? 🚀\n\n` +
       `📊 **YOUR PROFILE:**\n` +
       `• 🪙 **Points:** \`${currentUser.points.toFixed(1)}\`\n` +
-      `• 🏆 **Best Record:** \`${currentUser.bestDiff !== null && currentUser.bestDiff !== undefined ? currentUser.bestDiff + 's' : 'No records yet'}\`\n\n` +
+      `• 💵 **Cash Balance:** \`$${currentUser.balanceUSD.toFixed(2)} USD\`\n` +
+      `• 🏆 **Best Record:** \`${currentUser.bestDiff !== null ? currentUser.bestDiff + 's' : 'No records yet'}\`\n\n` +
+      `📌 *Minimum Withdrawal Threshold:* **$10.00 USD**\n\n` +
       `👇 Tap **Play StopLock Trend** below to play!`;
 
   const keyboard = new InlineKeyboard()
     .webApp("🟢 Play StopLock Trend", MINI_APP_URL)
     .row()
-    .url("👥 Invite Friends (+1 Point)", `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent("Join StopLock Challenge and test your precision to reach Global TOP 50! ⏱️🔥")}`)
+    .url("👥 Invite Friends (+1 Point)", `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent("Join StopLock Challenge and test your precision to win real rewards! ⏱️🔥")}`)
     .row()
     .text("🏆 Leaderboard", "show_leaderboard")
-    .text("📜 Rules & FAQ", "show_rules");
+    .text("📜 Rules & FAQ", "show_rules")
+    .row()
+    .text("💳 Withdraw ($10.00 Min)", "request_payout");
 
   await ctx.reply(welcomeText, {
     parse_mode: "Markdown",
@@ -340,7 +351,7 @@ bot.command("start", async (ctx) => {
 bot.callbackQuery("show_leaderboard", async (ctx) => {
   const users = loadData(DB_FILE);
   const sorted = Object.values(users)
-    .filter(u => u && u.bestDiff !== null && u.bestDiff !== undefined)
+    .filter(u => u.bestDiff !== null)
     .sort((a, b) => a.bestDiff - b.bestDiff)
     .slice(0, 10);
 
@@ -363,14 +374,37 @@ bot.callbackQuery("show_rules", async (ctx) => {
     `2️⃣ **Attempts Policy:** You get **Max 2 Tries** per room match using Points or Stars. Your BEST score in the room is saved!\n\n` +
     `3️⃣ **Game Modes:**\n` +
     `• 🎯 **Practice Arena:** Unlimited free warm-up.\n` +
-    `• ⚔️ **Head-to-Head Duel:** 2-Player Match.\n` +
-    `• ⏱️ **Classic Precision:** Pure visible timer.\n` +
-    `• 👁️‍🗨️ **Blind Sense:** Timer hides randomly.\n` +
-    `• ❄️ **Frost Glitch:** Dynamic system freezes.\n` +
-    `• 💎 **Quantum Chaos:** Speed Lags + Glitches.\n\n` +
-    `4️⃣ **Ranking:** Compete against players worldwide to reach the Global TOP 50!`;
+    `• ⚔️ **Head-to-Head Duel:** 2-Player Match ($0.10 Prize).\n` +
+    `• ⏱️ **Classic Precision:** Pure visible timer ($0.50 Prize).\n` +
+    `• 👁️‍🗨️ **Blind Sense:** Timer hides randomly ($1.50 Prize).\n` +
+    `• ❄️ **Frost Glitch:** Dynamic system freezes ($5.00 Prize).\n` +
+    `• 💎 **Quantum Chaos:** Speed Lags + Glitches ($12.50 Prize).\n\n` +
+    `4️⃣ **Payouts & Withdrawals:** Minimum payout threshold is **$10.00 USD**. Requests are processed manually via Binance Pay / USDT / Local Wallets.`;
   
   await ctx.reply(rulesText, { parse_mode: "Markdown" });
+  await ctx.answerCallbackQuery();
+});
+
+bot.callbackQuery("request_payout", async (ctx) => {
+  const users = loadData(DB_FILE);
+  const u = users[ctx.from.id];
+
+  if (!u || u.balanceUSD < 10.00) {
+    return ctx.answerCallbackQuery({ 
+      text: `❌ Insufficient balance! Minimum payout threshold is $10.00 USD. Your balance: $${u ? u.balanceUSD.toFixed(2) : '0.00'} USD.`, 
+      show_alert: true 
+    });
+  }
+
+  await ctx.reply(
+    `💵 **PAYOUT REQUEST ELIGIBLE!**\n\n` +
+    `Your Cash Balance: **$${u.balanceUSD.toFixed(2)} USD**\n\n` +
+    `Please reply to this message with your payment details:\n` +
+    `• Binance Pay ID\n` +
+    `• USDT Address (TRC20/BEP20)\n` +
+    `• Local Wallet Number\n\n` +
+    `An admin will review and complete your transfer shortly! 🚀`
+  );
   await ctx.answerCallbackQuery();
 });
 
@@ -379,7 +413,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌐 API Server running on port ${PORT}`));
 
 // Start Bot Engine
-bot.start({
-  drop_pending_updates: true
-});
+bot.start();
 console.log("🚀 StopLock Bot Backend is active and running...");
