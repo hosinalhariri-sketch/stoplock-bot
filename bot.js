@@ -4,7 +4,7 @@ const express = require("express");
 const cors = require("cors");
 
 // 🔑 Telegram Bot Token & WebApp URL
-const BOT_TOKEN = "8897585537:AAG08N6a05gtkhHgs6GD-UMnpoExZaSd1sQ"; 
+const BOT_TOKEN = process.env.BOT_TOKEN || "8897585537:AAG08N6a05gtkhHgs6GD-UMnpoExZaSd1sQ"; 
 const MINI_APP_URL = "https://stop-lock-challenge.vercel.app/";
 
 const bot = new Bot(BOT_TOKEN);
@@ -55,12 +55,12 @@ function ensureUserExists(users, userId, name) {
 // 🌐 API ENDPOINTS (FOR MINI APP CONNECTION)
 // ==========================================
 
-// 🟢 0. مسار فحص الاستجابة الرئيسي لإبقاء السيرفر مستيقظاً عبر UptimeRobot
+// 🟢 0. مسار فحص الاستجابة الرئيسي
 app.get("/", (req, res) => {
   res.status(200).send("🚀 StopLock Server is Live and Active!");
 });
 
-// 🔄 1. جلب بيانات المستخدم المحدثة عند فتح اللعبة
+// 🔄 1. جلب بيانات المستخدم المحدثة
 app.get("/api/user-data/:userId", (req, res) => {
   const users = loadData(DB_FILE);
   const u = users[req.params.userId];
@@ -88,7 +88,29 @@ app.post("/api/claim-daily", (req, res) => {
   res.json({ success: true, points: users[userId].points });
 });
 
-// 🔍 3. مسار جلب حالة الغرفة واللاعبين المتواجدين فيها مباشرة للواجهة
+// ⭐ 3. مسار إنشاء فاتورة الدفع بـ Telegram Stars
+app.post("/api/create-stars-invoice", async (req, res) => {
+  const { userId, mode, starsCount } = req.body;
+  if (!userId || !starsCount) return res.status(400).json({ error: "Missing data" });
+
+  try {
+    const invoiceLink = await bot.api.createInvoiceLink(
+      `StopLock - ${mode.toUpperCase()} Entry`,
+      `Entry fee for ${mode.toUpperCase()} tournament room`,
+      JSON.stringify({ userId, mode }),
+      "", // متطلب فارغ لنجوم تلجرام
+      "XTR", // رمز عملة Telegram Stars
+      [{ label: `${starsCount} Stars Entry`, amount: starsCount }]
+    );
+
+    res.json({ success: true, invoiceLink });
+  } catch (e) {
+    console.error("Invoice Error:", e);
+    res.status(500).json({ error: "Failed to generate invoice" });
+  }
+});
+
+// 🔍 4. مسار جلب حالة الغرفة واللاعبين
 app.get("/api/room-status/:roomId", (req, res) => {
   const { roomId } = req.params;
   const rooms = loadData(ROOMS_FILE);
@@ -104,7 +126,7 @@ app.get("/api/room-status/:roomId", (req, res) => {
   res.json({ players: foundRoom || [] });
 });
 
-// 🏆 4. إرسال نتيجة المحاولة وتوزيع الجوائز عند الاكتمال
+// 🏆 5. إرسال نتيجة المحاولة وتوزيع الجوائز
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost, roomId } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -150,7 +172,7 @@ app.post("/api/submit-score", async (req, res) => {
 
   const targetPlayers = mode === 'duel' ? 2 : 10;
 
-  // 🏁 عند اكتمال الغرفة بالسعة المطلوبة
+  // 🏁 عند اكتمال الغرفة
   if (currentRoomPlayers.length >= targetPlayers) {
     currentRoomPlayers.sort((a, b) => a.diff - b.diff);
 
@@ -162,7 +184,6 @@ app.post("/api/submit-score", async (req, res) => {
 
       users[winner.userId].balanceUSD = (users[winner.userId].balanceUSD || 0) + prize.p1;
 
-      // إرسال تنبيهات الفوز والهاردلك لكلا الجوالين فوراً
       try {
         await bot.api.sendMessage(winner.userId, `⚔️ **مبروك الفوز!**\nلقد انتصرت في المواجهة بفارق \`${winner.diff}s\` مقابل \`${loser.diff}s\` لمنافسك!\nوحصلت على **$${prize.p1} USD** 💵!`);
       } catch (e) {}
@@ -206,6 +227,16 @@ app.post("/api/submit-score", async (req, res) => {
 // ==========================================
 // 🤖 TELEGRAM BOT COMMANDS & HANDLERS
 // ==========================================
+
+// ⭐ معالجة دفع النجوم عبر تلجرام (Pre-checkout query)
+bot.on("pre_checkout_query", (ctx) => ctx.answerPreCheckoutQuery(true));
+
+// ⭐ معالجة عملية الدفع الناجحة بالنجوم
+bot.on("message:successful_payment", async (ctx) => {
+  try {
+    await ctx.reply("🌟 **تم تأكيد عملية الدفع بالنجوم بنجاح!**\nبالتوفيق في المنافسة! 🚀");
+  } catch (e) {}
+});
 
 bot.command("start", async (ctx) => {
   const userId = ctx.from.id;
@@ -293,8 +324,8 @@ bot.callbackQuery("show_leaderboard", async (ctx) => {
 
 bot.callbackQuery("show_rules", async (ctx) => {
   const rulesText = `📜 **STOPLOCK RULES & FAQ:**\n\n` +
-    `1️⃣ **Points & Free Tries:** Get 2 free points on join, +0.5 daily bonus claim, watch ads for +0.5 point (Up to 5 ads/day), and +1 point for each friend invited.\n\n` +
-    `2️⃣ **Attempts Policy:** You get **Max 2 Tries** per room match (Initial + 1 Retry via Ad or Points). Your BEST score is kept!\n\n` +
+    `1️⃣ **Points & Bonus:** Get 2 free points on join, +0.5 daily claim, watch optional ads for **+1 Free Point** 🪙 (Up to 5 ads/day), and +1 point for each friend invited.\n\n` +
+    `2️⃣ **Attempts Policy:** You get **Max 2 Tries** per room match using Points or Stars. Your BEST score in the room is saved!\n\n` +
     `3️⃣ **Game Modes:**\n` +
     `• 🎯 **Practice Arena:** Unlimited free warm-up.\n` +
     `• ⚔️ **Head-to-Head Duel:** 2-Player Match ($0.10 Prize).\n` +
