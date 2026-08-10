@@ -13,8 +13,10 @@ const app = express();
 
 app.use(cors());
 
-// 🔗 تسجيل الـ Webhook مباشرة مع Express
+// ⚠️ مسار الـ Webhook يتلقى البيانات مباشرة من تلجرام بدون express.json
 app.use("/telegram-webhook", webhookCallback(bot, "express"));
+
+// باقي المسارات فقط تستخدم express.json
 app.use(express.json());
 
 const DB_FILE = "./users.json";
@@ -414,11 +416,13 @@ bot.callbackQuery("request_payout", async (ctx) => {
 
 // Start Express Server
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🌐 API Server running on port ${PORT}`);
-  
-  const webhookUrl = `${SERVER_URL}/telegram-webhook`;
-  bot.api.setWebhook(webhookUrl, { drop_pending_updates: true })
-    .then(() => console.log(`🚀 Webhook successfully registered: ${webhookUrl}`))
-    .catch((err) => console.error("❌ Failed to set webhook:", err.message));
+  try {
+    const webhookUrl = `${SERVER_URL}/telegram-webhook`;
+    await bot.api.setWebhook(webhookUrl, { drop_pending_updates: true });
+    console.log(`🚀 Webhook successfully registered: ${webhookUrl}`);
+  } catch (err) {
+    console.error("❌ Failed to set webhook:", err.message);
+  }
 });
