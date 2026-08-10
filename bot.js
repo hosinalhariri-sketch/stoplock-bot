@@ -43,12 +43,12 @@ function ensureUserExists(users, userId, name) {
 // 🌐 API ENDPOINTS (FOR MINI APP CONNECTION)
 // ==========================================
 
-// 🟢 0. مسار فحص الاستجابة الرئيسي
+// 🟢 0. Main Health Check
 app.get("/", (req, res) => {
   res.status(200).send("🚀 StopLock Server is Live and Active!");
 });
 
-// 🔄 1. جلب بيانات المستخدم المحدثة
+// 🔄 1. Get Updated User Data
 app.get("/api/user-data/:userId", (req, res) => {
   const users = loadData(DB_FILE);
   const u = users[req.params.userId];
@@ -56,7 +56,7 @@ app.get("/api/user-data/:userId", (req, res) => {
   res.json({ points: u.points, bestDiff: u.bestDiff });
 });
 
-// 🏆 2. جلب أفضل 50 لاعب عالمياً (TOP 50 LEADERBOARD)
+// 🏆 2. Get Top 50 Global Leaderboard
 app.get("/api/top50", (req, res) => {
   const users = loadData(DB_FILE);
   const sorted = Object.values(users)
@@ -67,7 +67,7 @@ app.get("/api/top50", (req, res) => {
   res.json(sorted);
 });
 
-// 🎁 3. المطالبة بالمكافأة اليومية (+0.5 نقطة)
+// 🎁 3. Claim Daily Reward (+0.5 Point)
 app.post("/api/claim-daily", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -87,7 +87,7 @@ app.post("/api/claim-daily", (req, res) => {
   res.json({ success: true, points: users[userId].points });
 });
 
-// ⭐ 4. مسار إنشاء فاتورة الدفع بـ Telegram Stars لشراء المظاهر أو التحديات
+// ⭐ 4. Create Telegram Stars Payment Invoice Link
 app.post("/api/create-stars-invoice", async (req, res) => {
   const { userId, mode, starsCount } = req.body;
   if (!userId || !starsCount) return res.status(400).json({ error: "Missing data" });
@@ -109,7 +109,7 @@ app.post("/api/create-stars-invoice", async (req, res) => {
   }
 });
 
-// 🔍 5. مسار جلب حالة الغرفة واللاعبين
+// 🔍 5. Fetch Room Status and Players
 app.get("/api/room-status/:roomId", (req, res) => {
   const { roomId } = req.params;
   const rooms = loadData(ROOMS_FILE);
@@ -125,7 +125,7 @@ app.get("/api/room-status/:roomId", (req, res) => {
   res.json({ players: foundRoom || [] });
 });
 
-// 🚪 6. مسار خروج اللاعب وإبقاء الفارق الخاص به
+// 🚪 6. Player Exits Room / Concludes Match
 app.post("/api/leave-room", async (req, res) => {
   const { userId, roomId, mode } = req.body;
   if (!userId || !roomId || !mode) return res.status(400).json({ error: "Missing data" });
@@ -144,7 +144,7 @@ app.post("/api/leave-room", async (req, res) => {
   res.json({ success: true });
 });
 
-// 🏆 7. إرسال نتيجة المحاولة وتحديث أرقام اللاعبين
+// 🏆 7. Submit Score & Update Leaderboards
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost, roomId, attemptNumber } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -205,7 +205,7 @@ app.post("/api/submit-score", async (req, res) => {
   });
 });
 
-// 🏁 دالة إنهاء الغرفة وتوزيع مكافآت النقاط
+// 🏁 Finalize Room Match and Award Bonus Points
 async function checkAndFinalizeRoom(mode, roomId) {
   const rooms = loadData(ROOMS_FILE);
   const users = loadData(DB_FILE);
@@ -228,13 +228,13 @@ async function checkAndFinalizeRoom(mode, roomId) {
       if (winner && users[winner.userId]) {
         users[winner.userId].points = (users[winner.userId].points || 0) + 2;
         try {
-          await bot.api.sendMessage(winner.userId, `⚔️ **مبروك الفوز!**\nانتصرت في المواجهة بفارق \`${winner.diff}s\` مقابل \`${loser ? loser.diff : '-'}s\` لمنافسك!\nوحصلت على **+2 نقطة 🪙**!`);
+          await bot.api.sendMessage(winner.userId, `⚔️ **Victory!**\nYou won the 1v1 duel with a diff of \`${winner.diff}s\` against \`${loser ? loser.diff : '-'}s\`!\nEarned **+2 Bonus Points** 🪙!`);
         } catch (e) {}
       }
 
       if (loser && users[loser.userId]) {
         try {
-          await bot.api.sendMessage(loser.userId, `⚔️ **هاردلك!**\nلقد خسرت المواجهة بفارق \`${loser.diff}s\` مقابل \`${winner.diff}s\` لمنافسك.`);
+          await bot.api.sendMessage(loser.userId, `⚔️ **Defeat!**\nYou lost the duel with a diff of \`${loser.diff}s\` against \`${winner.diff}s\`.`);
         } catch (e) {}
       }
 
@@ -242,7 +242,7 @@ async function checkAndFinalizeRoom(mode, roomId) {
       const winner1 = currentRoomPlayers[0];
       if (winner1 && users[winner1.userId]) {
         users[winner1.userId].points = (users[winner1.userId].points || 0) + 5;
-        try { await bot.api.sendMessage(winner1.userId, `🥇 **المركز الأول!** في جدول (${mode.toUpperCase()}) بفارق \`${winner1.diff}s\`! حصلت على **+5 نقاط 🪙**!`); } catch (e) {}
+        try { await bot.api.sendMessage(winner1.userId, `🥇 **1st Place!** In (${mode.toUpperCase()}) match with \`${winner1.diff}s\` diff! Earned **+5 Bonus Points** 🪙!`); } catch (e) {}
       }
     }
 
@@ -258,11 +258,13 @@ async function checkAndFinalizeRoom(mode, roomId) {
 // 🤖 TELEGRAM BOT COMMANDS & HANDLERS
 // ==========================================
 
+// ⭐ Pre-checkout Handler for Telegram Stars
 bot.on("pre_checkout_query", (ctx) => ctx.answerPreCheckoutQuery(true));
 
+// ⭐ Successful Payment Handler for Telegram Stars
 bot.on("message:successful_payment", async (ctx) => {
   try {
-    await ctx.reply("🌟 **تم تأكيد عملية الشراء بالنجوم بنجاح!**\nتم فتح العنصر الاستعراضي في حسابك 🚀");
+    await ctx.reply("🌟 **Payment Confirmed!**\nYour item / cosmetics have been unlocked! 🚀");
   } catch (e) {}
 });
 
@@ -295,14 +297,14 @@ bot.command("start", async (ctx) => {
   const inviteLink = `https://t.me/${ctx.me.username}?start=${userId}`;
 
   const welcomeText = isNewUser
-    ? `🎯 **WELCOME TO STOPLOCK TREND CHALLENGE!** 🎯\n\n` +
+    ? `🎯 **WELCOME TO STOPLOCK CHALLENGE!** 🎯\n\n` +
       `Test your speed and precision against the clock! ⏱️🔥\n\n` +
       `🎁 **WELCOME BONUS:**\n` +
       `You received **2 FREE POINTS** to start! 🪙\n\n` +
       `📊 **YOUR PROFILE:**\n` +
       `• 🪙 **Points:** \`${currentUser.points.toFixed(1)}\`\n` +
       `• 🏆 **Best Record:** \`No records yet\`\n\n` +
-      `👇 Tap **Play StopLock Trend** below to reach Global TOP 50!`
+      `👇 Tap **Play StopLock Trend** below to climb Global TOP 50!`
     : `⚡ **WELCOME BACK, CHAMPION!** ⚡\n\n` +
       `Ready to break your record and climb the Global Top 50? 🚀\n\n` +
       `📊 **YOUR PROFILE:**\n` +
