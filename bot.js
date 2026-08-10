@@ -15,27 +15,14 @@ app.use(cors());
 const DB_FILE = "./users.json";
 const ROOMS_FILE = "./rooms.json";
 
-// Helper functions for Database (Self-Healing Files)
+// Helper functions for Database
 function loadData(file) {
-  try {
-    if (!fs.existsSync(file)) {
-      fs.writeFileSync(file, JSON.stringify({}), "utf8");
-      return {};
-    }
-    const content = fs.readFileSync(file, "utf8");
-    return content ? JSON.parse(content) : {};
-  } catch (e) {
-    console.error(`Error reading ${file}:`, e);
-    return {};
-  }
+  if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({}));
+  try { return JSON.parse(fs.readFileSync(file)); } catch (e) { return {}; }
 }
 
 function saveData(file, data) {
-  try {
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
-  } catch (e) {
-    console.error(`Error writing ${file}:`, e);
-  }
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
 function ensureUserExists(users, userId, name) {
@@ -56,7 +43,7 @@ function ensureUserExists(users, userId, name) {
 // 🌐 API ENDPOINTS (FOR MINI APP CONNECTION)
 // ==========================================
 
-// 🟢 0. Main Health Check
+// 🟢 0. Health Check Endpoint
 app.get("/", (req, res) => {
   res.status(200).send("🚀 StopLock Server is Live and Active!");
 });
@@ -69,7 +56,7 @@ app.get("/api/user-data/:userId", (req, res) => {
   res.json({ points: u.points, bestDiff: u.bestDiff });
 });
 
-// 🏆 2. Get Top 50 Global Leaderboard
+// 🏆 2. Get Top 50 Leaderboard
 app.get("/api/top50", (req, res) => {
   const users = loadData(DB_FILE);
   const sorted = Object.values(users)
@@ -100,19 +87,19 @@ app.post("/api/claim-daily", (req, res) => {
   res.json({ success: true, points: users[userId].points });
 });
 
-// ⭐ 4. Create Telegram Stars Payment Invoice Link
+// ⭐ 4. Telegram Stars Invoice Creation Endpoint
 app.post("/api/create-stars-invoice", async (req, res) => {
   const { userId, mode, starsCount } = req.body;
   if (!userId || !starsCount) return res.status(400).json({ error: "Missing data" });
 
   try {
     const invoiceLink = await bot.api.createInvoiceLink(
-      `StopLock - ${mode.toUpperCase()} Item`,
-      `Stars Entry / Cosmetics unlock for ${mode.toUpperCase()}`,
+      `StopLock - ${mode.toUpperCase()} Entry`,
+      `Entry fee for ${mode.toUpperCase()} tournament room`,
       JSON.stringify({ userId, mode }),
-      "", 
-      "XTR", 
-      [{ label: `${starsCount} Stars`, amount: starsCount }]
+      "", // Empty requirement for Telegram Stars
+      "XTR", // Currency code for Telegram Stars
+      [{ label: `${starsCount} Stars Entry`, amount: starsCount }]
     );
 
     res.json({ success: true, invoiceLink });
@@ -138,7 +125,7 @@ app.get("/api/room-status/:roomId", (req, res) => {
   res.json({ players: foundRoom || [] });
 });
 
-// 🚪 6. Player Exits Room / Concludes Match
+// 🚪 6. Leave Room Endpoint
 app.post("/api/leave-room", async (req, res) => {
   const { userId, roomId, mode } = req.body;
   if (!userId || !roomId || !mode) return res.status(400).json({ error: "Missing data" });
@@ -157,7 +144,7 @@ app.post("/api/leave-room", async (req, res) => {
   res.json({ success: true });
 });
 
-// 🏆 7. Submit Score & Update Leaderboards
+// 🏆 7. Submit Score & Update Player Stats
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost, roomId, attemptNumber } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
@@ -173,7 +160,7 @@ app.post("/api/submit-score", async (req, res) => {
 
   const cleanDiff = parseFloat(Number(diff).toFixed(3));
 
-  if (users[userId].bestDiff === null || users[userId].bestDiff === undefined || cleanDiff < users[userId].bestDiff) {
+  if (users[userId].bestDiff === null || cleanDiff < users[userId].bestDiff) {
     users[userId].bestDiff = cleanDiff;
   }
 
@@ -218,7 +205,7 @@ app.post("/api/submit-score", async (req, res) => {
   });
 });
 
-// 🏁 Finalize Room Match and Award Bonus Points
+// 🏁 Finalize Room Match
 async function checkAndFinalizeRoom(mode, roomId) {
   const rooms = loadData(ROOMS_FILE);
   const users = loadData(DB_FILE);
@@ -241,13 +228,19 @@ async function checkAndFinalizeRoom(mode, roomId) {
       if (winner && users[winner.userId]) {
         users[winner.userId].points = (users[winner.userId].points || 0) + 2;
         try {
-          await bot.api.sendMessage(winner.userId, `⚔️ **Victory!**\nYou won the 1v1 duel with a diff of \`${winner.diff}s\` against \`${loser ? loser.diff : '-'}s\`!\nEarned **+2 Bonus Points** 🪙!`);
+          await bot.api.sendMessage(
+            winner.userId, 
+            `⚔️ **Victory!**\nYou won the duel with a difference of \`${winner.diff}s\` vs \`${loser ? loser.diff : '-'}s\`!\nEarned **+2 Bonus Points** 🪙!`
+          );
         } catch (e) {}
       }
 
       if (loser && users[loser.userId]) {
         try {
-          await bot.api.sendMessage(loser.userId, `⚔️ **Defeat!**\nYou lost the duel with a diff of \`${loser.diff}s\` against \`${winner.diff}s\`.`);
+          await bot.api.sendMessage(
+            loser.userId, 
+            `⚔️ **Defeat!**\nYou lost the duel with a difference of \`${loser.diff}s\` vs \`${winner.diff}s\`.`
+          );
         } catch (e) {}
       }
 
@@ -255,7 +248,12 @@ async function checkAndFinalizeRoom(mode, roomId) {
       const winner1 = currentRoomPlayers[0];
       if (winner1 && users[winner1.userId]) {
         users[winner1.userId].points = (users[winner1.userId].points || 0) + 5;
-        try { await bot.api.sendMessage(winner1.userId, `🥇 **1st Place!** In (${mode.toUpperCase()}) match with \`${winner1.diff}s\` diff! Earned **+5 Bonus Points** 🪙!`); } catch (e) {}
+        try {
+          await bot.api.sendMessage(
+            winner1.userId, 
+            `🥇 **1st Place!** In (${mode.toUpperCase()}) room with \`${winner1.diff}s\` difference! Earned **+5 Bonus Points** 🪙!`
+          );
+        } catch (e) {}
       }
     }
 
@@ -277,7 +275,7 @@ bot.on("pre_checkout_query", (ctx) => ctx.answerPreCheckoutQuery(true));
 // ⭐ Successful Payment Handler for Telegram Stars
 bot.on("message:successful_payment", async (ctx) => {
   try {
-    await ctx.reply("🌟 **Payment Confirmed!**\nYour item / cosmetics have been unlocked! 🚀");
+    await ctx.reply("🌟 **Payment Confirmed!**\nGood luck in your match! 🚀");
   } catch (e) {}
 });
 
@@ -317,9 +315,9 @@ bot.command("start", async (ctx) => {
       `📊 **YOUR PROFILE:**\n` +
       `• 🪙 **Points:** \`${currentUser.points.toFixed(1)}\`\n` +
       `• 🏆 **Best Record:** \`No records yet\`\n\n` +
-      `👇 Tap **Play StopLock Trend** below to climb Global TOP 50!`
+      `👇 Tap **Play StopLock Trend** below to begin!`
     : `⚡ **WELCOME BACK, CHAMPION!** ⚡\n\n` +
-      `Ready to break your record and climb the Global Top 50? 🚀\n\n` +
+      `Ready to set a new record and climb the Global Leaderboard? 🚀\n\n` +
       `📊 **YOUR PROFILE:**\n` +
       `• 🪙 **Points:** \`${currentUser.points.toFixed(1)}\`\n` +
       `• 🏆 **Best Record:** \`${currentUser.bestDiff !== null && currentUser.bestDiff !== undefined ? currentUser.bestDiff + 's' : 'No records yet'}\`\n\n` +
@@ -330,7 +328,7 @@ bot.command("start", async (ctx) => {
     .row()
     .url("👥 Invite Friends (+1 Point)", `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent("Join StopLock Challenge and test your precision to reach Global TOP 50! ⏱️🔥")}`)
     .row()
-    .text("🏆 Global TOP 50", "show_leaderboard")
+    .text("🏆 Leaderboard", "show_leaderboard")
     .text("📜 Rules & FAQ", "show_rules");
 
   await ctx.reply(welcomeText, {
@@ -344,13 +342,13 @@ bot.callbackQuery("show_leaderboard", async (ctx) => {
   const sorted = Object.values(users)
     .filter(u => u && u.bestDiff !== null && u.bestDiff !== undefined)
     .sort((a, b) => a.bestDiff - b.bestDiff)
-    .slice(0, 15);
+    .slice(0, 10);
 
   if (sorted.length === 0) {
     return ctx.answerCallbackQuery({ text: "🏆 No leaderboard records yet!", show_alert: true });
   }
 
-  let leaderText = "🏆 **Global Leaderboard Top 15:**\n\n";
+  let leaderText = "🏆 **Global Leaderboard Top 10:**\n\n";
   sorted.forEach((u, idx) => {
     leaderText += `${idx + 1}. **${u.username}** — \`${u.bestDiff}s\`\n`;
   });
@@ -362,19 +360,25 @@ bot.callbackQuery("show_leaderboard", async (ctx) => {
 bot.callbackQuery("show_rules", async (ctx) => {
   const rulesText = `📜 **STOPLOCK RULES & FAQ:**\n\n` +
     `1️⃣ **Points & Bonus:** Get 2 free points on join, +0.5 daily claim, watch optional ads for **+1 Free Point** 🪙 (Up to 5 ads/day), and +1 point for each friend invited.\n\n` +
-    `2️⃣ **Top 50 Ranking:** Compete globally! The closer your timing is to the target (lowest Diff), the higher you rank on the Leaderboard.\n\n` +
-    `3️⃣ **Private Rooms:** Create custom rooms to challenge your friends directly and prove your precision speed!\n\n` +
-    `4️⃣ **Cosmetics & Skins:** Collect points or Telegram Stars ⭐ to unlock custom LED timer displays, golden buzzer buttons, and profile badges.`;
+    `2️⃣ **Attempts Policy:** You get **Max 2 Tries** per room match using Points or Stars. Your BEST score in the room is saved!\n\n` +
+    `3️⃣ **Game Modes:**\n` +
+    `• 🎯 **Practice Arena:** Unlimited free warm-up.\n` +
+    `• ⚔️ **Head-to-Head Duel:** 2-Player Match.\n` +
+    `• ⏱️ **Classic Precision:** Pure visible timer.\n` +
+    `• 👁️‍🗨️ **Blind Sense:** Timer hides randomly.\n` +
+    `• ❄️ **Frost Glitch:** Dynamic system freezes.\n` +
+    `• 💎 **Quantum Chaos:** Speed Lags + Glitches.\n\n` +
+    `4️⃣ **Ranking:** Compete against players worldwide to reach the Global TOP 50!`;
   
   await ctx.reply(rulesText, { parse_mode: "Markdown" });
   await ctx.answerCallbackQuery();
 });
 
 // Start Express Server
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌐 API Server running on port ${PORT}`));
 
-// Start Bot Engine & Drop Old Blocked Updates
+// Start Bot Engine
 bot.start({
   drop_pending_updates: true
 });
