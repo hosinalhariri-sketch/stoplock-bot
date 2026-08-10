@@ -81,7 +81,7 @@ app.post("/api/claim-daily", (req, res) => {
     return res.status(400).json({ error: "Already claimed today", points: users[userId].points });
   }
 
-  users[userId].points = (users[userId].points || 0) + 0.5;
+  users[userId].points = (users[userId].points || 0) + 1000;
   users[userId].lastClaimDate = today;
   saveData(DB_FILE, users);
 
