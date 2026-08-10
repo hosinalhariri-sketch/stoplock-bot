@@ -22,7 +22,11 @@ function loadData(file) {
 }
 
 function saveData(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  try {
+    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error("Save error:", e);
+  }
 }
 
 function ensureUserExists(users, userId, name) {
@@ -358,9 +362,11 @@ bot.callbackQuery("show_rules", async (ctx) => {
 });
 
 // Start Express Server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🌐 API Server running on port ${PORT}`));
 
-// Start Bot Engine
-bot.start();
+// Start Bot Engine & Drop Old Blocked Updates
+bot.start({
+  drop_pending_updates: true
+});
 console.log("🚀 StopLock Bot Backend is active and running...");
