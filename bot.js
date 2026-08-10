@@ -24,14 +24,17 @@ const PRIZES = {
   chaos:  { total: 12.50, p1: 6.50, p2: 3.50, p3: 2.50 }
 };
 
-// Helper functions for Database
+// 🚀 Fast Memory Caching (لتسريع الاستجابة فوراً)
+let usersCache = loadData(DB_FILE);
+let roomsCache = loadData(ROOMS_FILE);
+
 function loadData(file) {
   if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({}));
   try { return JSON.parse(fs.readFileSync(file)); } catch (e) { return {}; }
 }
 
 function saveData(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  fs.writeFile(file, JSON.stringify(data, null, 2), () => {});
 }
 
 function ensureUserExists(users, userId, name) {
@@ -55,23 +58,18 @@ function ensureUserExists(users, userId, name) {
 // 🌐 API ENDPOINTS (FOR MINI APP CONNECTION)
 // ==========================================
 
-// 🟢 0. مسار فحص الاستجابة الرئيسي
 app.get("/", (req, res) => {
   res.status(200).send("🚀 StopLock Server is Live and Active!");
 });
 
-// 🔄 1. جلب بيانات المستخدم المحدثة
 app.get("/api/user-data/:userId", (req, res) => {
-  const users = loadData(DB_FILE);
-  const u = users[req.params.userId];
+  const u = usersCache[req.params.userId];
   if (!u) return res.status(404).json({ error: "User not found" });
   res.json({ points: u.points, balanceUSD: u.balanceUSD });
 });
 
-// 🏆 2. مسار جلب قائمة أسرع 50 لاعب عالمياً للـ WebApp
 app.get("/api/top50", (req, res) => {
-  const users = loadData(DB_FILE);
-  const sorted = Object.values(users)
+  const sorted = Object.values(usersCache)
     .filter(u => u && u.bestDiff !== null && u.bestDiff !== undefined)
     .sort((a, b) => a.bestDiff - b.bestDiff)
     .slice(0, 50);
@@ -79,27 +77,24 @@ app.get("/api/top50", (req, res) => {
   res.json(sorted);
 });
 
-// 🎁 3. المطالبة بالمكافأة اليومية (+0.5 نقطة)
 app.post("/api/claim-daily", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "Missing userId" });
 
-  const users = loadData(DB_FILE);
-  ensureUserExists(users, userId);
+  ensureUserExists(usersCache, userId);
 
   const today = new Date().toDateString();
-  if (users[userId].lastClaimDate === today) {
-    return res.status(400).json({ error: "Already claimed today", points: users[userId].points });
+  if (usersCache[userId].lastClaimDate === today) {
+    return res.status(400).json({ error: "Already claimed today", points: usersCache[userId].points });
   }
 
-  users[userId].points = (users[userId].points || 0) + 0.5;
-  users[userId].lastClaimDate = today;
-  saveData(DB_FILE, users);
+  usersCache[userId].points = (usersCache[userId].points || 0) + 0.5;
+  usersCache[userId].lastClaimDate = today;
+  saveData(DB_FILE, usersCache);
 
-  res.json({ success: true, points: users[userId].points });
+  res.json({ success: true, points: usersCache[userId].points });
 });
 
-// ⭐ 4. مسار إنشاء فاتورة الدفع بـ Telegram Stars
 app.post("/api/create-stars-invoice", async (req, res) => {
   const { userId, mode, starsCount } = req.body;
   if (!userId || !starsCount) return res.status(400).json({ error: "Missing data" });
@@ -121,15 +116,12 @@ app.post("/api/create-stars-invoice", async (req, res) => {
   }
 });
 
-// 🔍 5. مسار جلب حالة الغرفة واللاعبين
 app.get("/api/room-status/:roomId", (req, res) => {
   const { roomId } = req.params;
-  const rooms = loadData(ROOMS_FILE);
-  
   let foundRoom = null;
-  for (const mode in rooms) {
-    if (rooms[mode]?.activeRooms && rooms[mode].activeRooms[roomId]) {
-      foundRoom = rooms[mode].activeRooms[roomId];
+  for (const mode in roomsCache) {
+    if (roomsCache[mode]?.activeRooms && roomsCache[mode].activeRooms[roomId]) {
+      foundRoom = roomsCache[mode].activeRooms[roomId];
       break;
     }
   }
@@ -137,54 +129,48 @@ app.get("/api/room-status/:roomId", (req, res) => {
   res.json({ players: foundRoom || [] });
 });
 
-// 🚪 6. مسار خروج اللاعب واكتفاءه بالنتيجة الحالية
 app.post("/api/leave-room", async (req, res) => {
   const { userId, roomId, mode } = req.body;
   if (!userId || !roomId || !mode) return res.status(400).json({ error: "Missing data" });
 
-  const rooms = loadData(ROOMS_FILE);
-  if (rooms[mode]?.activeRooms?.[roomId]) {
-    let currentRoomPlayers = rooms[mode].activeRooms[roomId];
+  if (roomsCache[mode]?.activeRooms?.[roomId]) {
+    let currentRoomPlayers = roomsCache[mode].activeRooms[roomId];
     const player = currentRoomPlayers.find(p => String(p.userId) === String(userId));
     if (player) {
       player.hasFinished = true;
     }
-    saveData(ROOMS_FILE, rooms);
+    saveData(ROOMS_FILE, roomsCache);
     
     await checkAndFinalizeRoom(mode, roomId);
   }
   res.json({ success: true });
 });
 
-// 🏆 7. إرسال نتيجة المحاولة وتحديث أرقام اللاعبين
 app.post("/api/submit-score", async (req, res) => {
   const { userId, mode, diff, cost, roomId, attemptNumber } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
 
-  const users = loadData(DB_FILE);
-  const rooms = loadData(ROOMS_FILE);
-
-  ensureUserExists(users, userId);
+  ensureUserExists(usersCache, userId);
 
   if (cost && cost > 0) {
-    users[userId].points = Math.max(0, (users[userId].points || 0) - cost);
+    usersCache[userId].points = Math.max(0, (usersCache[userId].points || 0) - cost);
   }
 
   const cleanDiff = parseFloat(Number(diff).toFixed(3));
 
-  if (users[userId].bestDiff === null || cleanDiff < users[userId].bestDiff) {
-    users[userId].bestDiff = cleanDiff;
+  if (usersCache[userId].bestDiff === null || cleanDiff < usersCache[userId].bestDiff) {
+    usersCache[userId].bestDiff = cleanDiff;
   }
 
-  const activeRoomKey = roomId || `${mode}_room_${rooms[mode]?.currentRoomId || 1}`;
+  const activeRoomKey = roomId || `${mode}_room_${roomsCache[mode]?.currentRoomId || 1}`;
 
-  if (!rooms[mode]) rooms[mode] = { currentRoomId: 1, activeRooms: {} };
-  if (!rooms[mode].activeRooms) rooms[mode].activeRooms = {};
-  if (!rooms[mode].activeRooms[activeRoomKey]) {
-    rooms[mode].activeRooms[activeRoomKey] = [];
+  if (!roomsCache[mode]) roomsCache[mode] = { currentRoomId: 1, activeRooms: {} };
+  if (!roomsCache[mode].activeRooms) roomsCache[mode].activeRooms = {};
+  if (!roomsCache[mode].activeRooms[activeRoomKey]) {
+    roomsCache[mode].activeRooms[activeRoomKey] = [];
   }
 
-  let currentRoomPlayers = rooms[mode].activeRooms[activeRoomKey];
+  let currentRoomPlayers = roomsCache[mode].activeRooms[activeRoomKey];
 
   const existingPlayerIndex = currentRoomPlayers.findIndex(p => String(p.userId) === String(userId));
 
@@ -198,34 +184,30 @@ app.post("/api/submit-score", async (req, res) => {
   } else {
     currentRoomPlayers.push({ 
       userId: String(userId), 
-      username: users[userId].username, 
+      username: usersCache[userId].username, 
       diff: cleanDiff,
       hasFinished: attemptNumber >= 2
     });
   }
 
-  saveData(DB_FILE, users);
-  saveData(ROOMS_FILE, rooms);
+  saveData(DB_FILE, usersCache);
+  saveData(ROOMS_FILE, roomsCache);
 
   await checkAndFinalizeRoom(mode, activeRoomKey);
 
   res.json({ 
     success: true, 
-    balanceUSD: users[userId].balanceUSD || 0, 
-    points: users[userId].points,
+    balanceUSD: usersCache[userId].balanceUSD || 0, 
+    points: usersCache[userId].points,
     roomId: activeRoomKey,
     roomPlayers: currentRoomPlayers
   });
 });
 
-// 🏁 دالة إنهاء الغرفة وتوزيع الجوائز
 async function checkAndFinalizeRoom(mode, roomId) {
-  const rooms = loadData(ROOMS_FILE);
-  const users = loadData(DB_FILE);
+  if (!roomsCache[mode]?.activeRooms?.[roomId]) return;
 
-  if (!rooms[mode]?.activeRooms?.[roomId]) return;
-
-  let currentRoomPlayers = rooms[mode].activeRooms[roomId];
+  let currentRoomPlayers = roomsCache[mode].activeRooms[roomId];
   const targetPlayers = mode === 'duel' ? 2 : 10;
 
   const isCapacityFull = currentRoomPlayers.length >= targetPlayers;
@@ -240,14 +222,14 @@ async function checkAndFinalizeRoom(mode, roomId) {
       const winner = currentRoomPlayers[0];
       const loser = currentRoomPlayers[1];
 
-      if (winner && users[winner.userId]) {
-        users[winner.userId].balanceUSD = (users[winner.userId].balanceUSD || 0) + prize.p1;
+      if (winner && usersCache[winner.userId]) {
+        usersCache[winner.userId].balanceUSD = (usersCache[winner.userId].balanceUSD || 0) + prize.p1;
         try {
           await bot.api.sendMessage(winner.userId, `⚔️ **مبروك الفوز!**\nلقد انتصرت في المواجهة بأسلوب ممتاز بفارق \`${winner.diff}s\` مقابل \`${loser ? loser.diff : '-'}s\` لمنافسك!\nوحصلت على **$${prize.p1} USD** 💵!`);
         } catch (e) {}
       }
 
-      if (loser && users[loser.userId]) {
+      if (loser && usersCache[loser.userId]) {
         try {
           await bot.api.sendMessage(loser.userId, `⚔️ **هاردلك!**\nلقد خسرت المواجهة بفارق \`${loser.diff}s\` مقابل \`${winner ? winner.diff : '-'}s\` لمنافسك.`);
         } catch (e) {}
@@ -258,25 +240,25 @@ async function checkAndFinalizeRoom(mode, roomId) {
       const winner2 = currentRoomPlayers[1];
       const winner3 = currentRoomPlayers[2];
 
-      if (winner1 && users[winner1.userId]) {
-        users[winner1.userId].balanceUSD = (users[winner1.userId].balanceUSD || 0) + prize.p1;
+      if (winner1 && usersCache[winner1.userId]) {
+        usersCache[winner1.userId].balanceUSD = (usersCache[winner1.userId].balanceUSD || 0) + prize.p1;
         try { await bot.api.sendMessage(winner1.userId, `🥇 **المركز الأول!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p1} USD** 💵!`); } catch (e) {}
       }
-      if (winner2 && users[winner2.userId]) {
-        users[winner2.userId].balanceUSD = (users[winner2.userId].balanceUSD || 0) + prize.p2;
+      if (winner2 && usersCache[winner2.userId]) {
+        usersCache[winner2.userId].balanceUSD = (usersCache[winner2.userId].balanceUSD || 0) + prize.p2;
         try { await bot.api.sendMessage(winner2.userId, `🥈 **المركز الثاني!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p2} USD** 💵!`); } catch (e) {}
       }
-      if (winner3 && users[winner3.userId]) {
-        users[winner3.userId].balanceUSD = (users[winner3.userId].balanceUSD || 0) + prize.p3;
+      if (winner3 && usersCache[winner3.userId]) {
+        usersCache[winner3.userId].balanceUSD = (usersCache[winner3.userId].balanceUSD || 0) + prize.p3;
         try { await bot.api.sendMessage(winner3.userId, `🥉 **المركز الثالث!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p3} USD** 💵!`); } catch (e) {}
       }
     }
 
-    delete rooms[mode].activeRooms[roomId];
-    rooms[mode].currentRoomId = (rooms[mode].currentRoomId || 1) + 1;
+    delete roomsCache[mode].activeRooms[roomId];
+    roomsCache[mode].currentRoomId = (roomsCache[mode].currentRoomId || 1) + 1;
 
-    saveData(DB_FILE, users);
-    saveData(ROOMS_FILE, rooms);
+    saveData(DB_FILE, usersCache);
+    saveData(ROOMS_FILE, roomsCache);
   }
 }
 
@@ -294,30 +276,29 @@ bot.on("message:successful_payment", async (ctx) => {
 
 bot.command("start", async (ctx) => {
   const userId = ctx.from.id;
-  const users = loadData(DB_FILE);
   const args = ctx.match;
 
-  let isNewUser = !users[userId];
-  ensureUserExists(users, userId, ctx.from.username || ctx.from.first_name);
+  let isNewUser = !usersCache[userId];
+  ensureUserExists(usersCache, userId, ctx.from.username || ctx.from.first_name);
 
   if (isNewUser && args && args !== String(userId)) {
     const referrerId = args;
-    ensureUserExists(users, referrerId, `Player_${referrerId}`);
+    ensureUserExists(usersCache, referrerId, `Player_${referrerId}`);
 
-    users[referrerId].points = (users[referrerId].points || 0) + 1;
-    users[referrerId].referralsCount = (users[referrerId].referralsCount || 0) + 1;
+    usersCache[referrerId].points = (usersCache[referrerId].points || 0) + 1;
+    usersCache[referrerId].referralsCount = (usersCache[referrerId].referralsCount || 0) + 1;
 
     try {
       await ctx.api.sendMessage(
         referrerId,
-        `🎉 **New Referral Bonus!**\nA friend joined using your link! You earned **+1 Free Point** 🪙\nTotal Balance: **${users[referrerId].points} Points**.`
+        `🎉 **New Referral Bonus!**\nA friend joined using your link! You earned **+1 Free Point** 🪙\nTotal Balance: **${usersCache[referrerId].points} Points**.`
       );
     } catch (e) {}
   }
 
-  saveData(DB_FILE, users);
+  saveData(DB_FILE, usersCache);
 
-  const currentUser = users[userId];
+  const currentUser = usersCache[userId];
   const inviteLink = `https://t.me/${ctx.me.username}?start=${userId}`;
 
   const welcomeText = isNewUser
@@ -357,8 +338,7 @@ bot.command("start", async (ctx) => {
 });
 
 bot.callbackQuery("show_leaderboard", async (ctx) => {
-  const users = loadData(DB_FILE);
-  const sorted = Object.values(users)
+  const sorted = Object.values(usersCache)
     .filter(u => u && u.bestDiff !== null)
     .sort((a, b) => a.bestDiff - b.bestDiff)
     .slice(0, 10);
@@ -394,8 +374,7 @@ bot.callbackQuery("show_rules", async (ctx) => {
 });
 
 bot.callbackQuery("request_payout", async (ctx) => {
-  const users = loadData(DB_FILE);
-  const u = users[ctx.from.id];
+  const u = usersCache[ctx.from.id];
 
   if (!u || u.balanceUSD < 10.00) {
     return ctx.answerCallbackQuery({ 
