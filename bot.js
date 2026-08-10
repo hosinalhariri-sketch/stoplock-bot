@@ -81,7 +81,7 @@ app.post("/api/claim-daily", (req, res) => {
     return res.status(400).json({ error: "Already claimed today", points: users[userId].points });
   }
 
-  users[userId].points = (users[userId].points || 0) + 1000;
+  users[userId].points = (users[userId].points || 0) + 0.5;
   users[userId].lastClaimDate = today;
   saveData(DB_FILE, users);
 
@@ -126,9 +126,29 @@ app.get("/api/room-status/:roomId", (req, res) => {
   res.json({ players: foundRoom || [] });
 });
 
-// 🏆 5. إرسال نتيجة المحاولة وتوزيع الجوائز
+// 🚪 5. مسار خروج اللاعب واكتفاءه بالنتيجة الحالية
+app.post("/api/leave-room", async (req, res) => {
+  const { userId, roomId, mode } = req.body;
+  if (!userId || !roomId || !mode) return res.status(400).json({ error: "Missing data" });
+
+  const rooms = loadData(ROOMS_FILE);
+  if (rooms[mode]?.activeRooms?.[roomId]) {
+    let currentRoomPlayers = rooms[mode].activeRooms[roomId];
+    const player = currentRoomPlayers.find(p => String(p.userId) === String(userId));
+    if (player) {
+      player.hasFinished = true; // تميز اللاعب بأنه أنهى دورته
+    }
+    saveData(ROOMS_FILE, rooms);
+    
+    // التحقق مما إذا اكتملت الغرفة بعد خروجه
+    await checkAndFinalizeRoom(mode, roomId);
+  }
+  res.json({ success: true });
+});
+
+// 🏆 6. إرسال نتيجة المحاولة وتحديث أرقام اللاعبين
 app.post("/api/submit-score", async (req, res) => {
-  const { userId, mode, diff, cost, roomId } = req.body;
+  const { userId, mode, diff, cost, roomId, attemptNumber } = req.body;
   if (!userId || !mode || diff === undefined) return res.status(400).json({ error: "Invalid data" });
 
   const users = loadData(DB_FILE);
@@ -159,21 +179,52 @@ app.post("/api/submit-score", async (req, res) => {
   const existingPlayerIndex = currentRoomPlayers.findIndex(p => String(p.userId) === String(userId));
 
   if (existingPlayerIndex !== -1) {
+    // الاحتفاظ بالرقم الأفضل للاعب في الغرفة
     if (cleanDiff < currentRoomPlayers[existingPlayerIndex].diff) {
       currentRoomPlayers[existingPlayerIndex].diff = cleanDiff;
+    }
+    if (attemptNumber >= 2) {
+      currentRoomPlayers[existingPlayerIndex].hasFinished = true;
     }
   } else {
     currentRoomPlayers.push({ 
       userId: String(userId), 
       username: users[userId].username, 
-      diff: cleanDiff 
+      diff: cleanDiff,
+      hasFinished: attemptNumber >= 2
     });
   }
 
+  saveData(DB_FILE, users);
+  saveData(ROOMS_FILE, rooms);
+
+  // التحقق مما إذا أنهى جميع اللاعبين محاولاتهم
+  await checkAndFinalizeRoom(mode, activeRoomKey);
+
+  res.json({ 
+    success: true, 
+    balanceUSD: users[userId].balanceUSD || 0, 
+    points: users[userId].points,
+    roomId: activeRoomKey,
+    roomPlayers: currentRoomPlayers
+  });
+});
+
+// 🏁 دالة إنهاء الغرفة وتوزيع الجوائز
+async function checkAndFinalizeRoom(mode, roomId) {
+  const rooms = loadData(ROOMS_FILE);
+  const users = loadData(DB_FILE);
+
+  if (!rooms[mode]?.activeRooms?.[roomId]) return;
+
+  let currentRoomPlayers = rooms[mode].activeRooms[roomId];
   const targetPlayers = mode === 'duel' ? 2 : 10;
 
-  // 🏁 عند اكتمال الغرفة
-  if (currentRoomPlayers.length >= targetPlayers) {
+  const isCapacityFull = currentRoomPlayers.length >= targetPlayers;
+  const allPlayersFinished = currentRoomPlayers.every(p => p.hasFinished === true);
+
+  // الشرط: اكتمال العدد + إنهاء جميع المتواجدين محاولاتهم
+  if (isCapacityFull && allPlayersFinished) {
     currentRoomPlayers.sort((a, b) => a.diff - b.diff);
 
     const prize = PRIZES[mode] || PRIZES.bronze;
@@ -185,7 +236,7 @@ app.post("/api/submit-score", async (req, res) => {
       users[winner.userId].balanceUSD = (users[winner.userId].balanceUSD || 0) + prize.p1;
 
       try {
-        await bot.api.sendMessage(winner.userId, `⚔️ **مبروك الفوز!**\nلقد انتصرت في المواجهة بفارق \`${winner.diff}s\` مقابل \`${loser.diff}s\` لمنافسك!\nوحصلت على **$${prize.p1} USD** 💵!`);
+        await bot.api.sendMessage(winner.userId, `⚔️ **مبروك الفوز!**\nلقد انتصرت في المواجهة بأسلوب ممتاز بفارق \`${winner.diff}s\` مقابل \`${loser.diff}s\` لمنافسك!\nوحصلت على **$${prize.p1} USD** 💵!`);
       } catch (e) {}
 
       try {
@@ -197,32 +248,27 @@ app.post("/api/submit-score", async (req, res) => {
       const winner2 = currentRoomPlayers[1];
       const winner3 = currentRoomPlayers[2];
 
-      users[winner1.userId].balanceUSD = (users[winner1.userId].balanceUSD || 0) + prize.p1;
-      users[winner2.userId].balanceUSD = (users[winner2.userId].balanceUSD || 0) + prize.p2;
-      users[winner3.userId].balanceUSD = (users[winner3.userId].balanceUSD || 0) + prize.p3;
-
-      try {
-        await bot.api.sendMessage(winner1.userId, `🥇 **المركز الأول!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p1} USD** 💵!`);
-        await bot.api.sendMessage(winner2.userId, `🥈 **المركز الثاني!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p2} USD** 💵!`);
-        await bot.api.sendMessage(winner3.userId, `🥉 **المركز الثالث!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p3} USD** 💵!`);
-      } catch (e) {}
+      if (winner1) {
+        users[winner1.userId].balanceUSD = (users[winner1.userId].balanceUSD || 0) + prize.p1;
+        try { await bot.api.sendMessage(winner1.userId, `🥇 **المركز الأول!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p1} USD** 💵!`); } catch (e) {}
+      }
+      if (winner2) {
+        users[winner2.userId].balanceUSD = (users[winner2.userId].balanceUSD || 0) + prize.p2;
+        try { await bot.api.sendMessage(winner2.userId, `🥈 **المركز الثاني!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p2} USD** 💵!`); } catch (e) {}
+      }
+      if (winner3) {
+        users[winner3.userId].balanceUSD = (users[winner3.userId].balanceUSD || 0) + prize.p3;
+        try { await bot.api.sendMessage(winner3.userId, `🥉 **المركز الثالث!** في جدول (${mode.toUpperCase()})! حصلت على **$${prize.p3} USD** 💵!`); } catch (e) {}
+      }
     }
 
-    delete rooms[mode].activeRooms[activeRoomKey];
+    delete rooms[mode].activeRooms[roomId];
     rooms[mode].currentRoomId = (rooms[mode].currentRoomId || 1) + 1;
+
+    saveData(DB_FILE, users);
+    saveData(ROOMS_FILE, rooms);
   }
-
-  saveData(DB_FILE, users);
-  saveData(ROOMS_FILE, rooms);
-
-  res.json({ 
-    success: true, 
-    balanceUSD: users[userId].balanceUSD || 0, 
-    points: users[userId].points,
-    roomId: activeRoomKey,
-    roomPlayers: currentRoomPlayers
-  });
-});
+}
 
 // ==========================================
 // 🤖 TELEGRAM BOT COMMANDS & HANDLERS
