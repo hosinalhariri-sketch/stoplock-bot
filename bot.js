@@ -4,25 +4,17 @@ const express = require("express");
 const cors = require("cors");
 
 // 🔑 Telegram Bot Token & WebApp URL
-const BOT_TOKEN = process.env.BOT_TOKEN;
+const BOT_TOKEN = process.env.BOT_TOKEN || "8897585537:AAHfOpaFJB7fw4xwsQ3WJF3HFxOiZcfgchc";
 const MINI_APP_URL = "https://stop-lock-challenge.vercel.app/";
 const SERVER_URL = "https://stoplock-bot.onrender.com";
-
-if (!BOT_TOKEN) {
-  console.error("❌ BOT_TOKEN is missing from Environment Variables!");
-}
 
 const bot = new Bot(BOT_TOKEN);
 const app = express();
 
 app.use(cors());
 
-// ==========================================
-// 🔗 TELEGRAM WEBHOOK MIDDLEWARE (MUST BE BEFORE express.json)
-// ==========================================
+// 🔗 تسجيل الـ Webhook مباشرة مع Express
 app.use("/telegram-webhook", webhookCallback(bot, "express"));
-
-// Express Middleware for standard routes
 app.use(express.json());
 
 const DB_FILE = "./users.json";
@@ -425,11 +417,8 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🌐 API Server running on port ${PORT}`);
   
-  // Register Webhook asynchronously after the HTTP server is fully listening
-  if (BOT_TOKEN) {
-    const webhookUrl = `${SERVER_URL}/telegram-webhook`;
-    bot.api.setWebhook(webhookUrl, { drop_pending_updates: true })
-      .then(() => console.log(`🚀 Webhook successfully registered: ${webhookUrl}`))
-      .catch((err) => console.error("❌ Failed to set webhook:", err.message));
-  }
+  const webhookUrl = `${SERVER_URL}/telegram-webhook`;
+  bot.api.setWebhook(webhookUrl, { drop_pending_updates: true })
+    .then(() => console.log(`🚀 Webhook successfully registered: ${webhookUrl}`))
+    .catch((err) => console.error("❌ Failed to set webhook:", err.message));
 });
